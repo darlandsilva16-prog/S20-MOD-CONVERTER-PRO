@@ -9,12 +9,19 @@ import org.xml.sax.SAXParseException;
 import org.xml.sax.XMLReader;
 import org.xml.sax.helpers.DefaultHandler;
 
-import java.io.ByteArrayInputStream;
+import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.Charset;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import javax.xml.parsers.SAXParserFactory;
 
 /** Análise estrutural I3D em modo somente leitura; não renderiza recursos proprietários. */
@@ -22,33 +29,40 @@ public final class I3dAnalyzer {
     public static final int MAX_BYTES = 16 * 1024 * 1024;
     private static final int MAX_REFS = 10000;
     private static final String XINCLUDE_NAMESPACE = "http://www.w3.org/2001/XInclude";
+    private static final Pattern XML_ENCODING = Pattern.compile("<\\?xml[^>]*\\bencoding\\s*=\\s*['\"]([^'\"]+)['\"]", Pattern.CASE_INSENSITIVE);
 
     public Report analyze(byte[] xml, Set<String> archivePaths) throws Exception {
         if (xml == null || xml.length == 0 || xml.length > MAX_BYTES) throw new IllegalArgumentException("I3D vazio ou acima do limite de 16 MiB.");
+        String source = decodeXml(xml);
+        rejectForbiddenDeclarations(source);
         Handler handler = new Handler();
         SAXParserFactory factory = SAXParserFactory.newInstance();
         // SAX não processa XInclude por padrão. Namespace ligado permite recusar
         // explicitamente qualquer elemento XInclude, sem consultar recursos que
         // não existem em algumas implementações Android.
         factory.setNamespaceAware(true);
-        // Rejeitar DOCTYPE também impede que o documento declare entidades internas
-        // que poderiam ser expandidas durante a leitura SAX.
-        setRequiredFeature(factory, "http://apache.org/xml/features/disallow-doctype-decl", true);
-        setRequiredFeature(factory, "http://xml.org/sax/features/external-general-entities", false);
-        setRequiredFeature(factory, "http://xml.org/sax/features/external-parameter-entities", false);
-        setRequiredFeature(factory, "http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+        try {
+            factory.setXIncludeAware(false);
+        } catch (UnsupportedOperationException unsupported) {
+            // Implementações SAX sem XInclude não podem processar essa diretiva;
+            // se houver suporte, ele fica explicitamente desativado.
+        }
+        // Essas opções são defesa adicional. A barreira obrigatória é a pré-validação
+        // lexical acima, que rejeita qualquer DOCTYPE antes de o SAX receber o texto.
+        disableFeatureIfSupported(factory, "http://apache.org/xml/features/disallow-doctype-decl", true);
+        disableFeatureIfSupported(factory, "http://xml.org/sax/features/external-general-entities", false);
+        disableFeatureIfSupported(factory, "http://xml.org/sax/features/external-parameter-entities", false);
+        disableFeatureIfSupported(factory, "http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
         javax.xml.parsers.SAXParser parser = factory.newSAXParser();
         XMLReader reader = parser.getXMLReader();
-        // Reaplica os controles diretamente ao leitor usado na análise. Se o parser
-        // não aceitar qualquer proteção obrigatória, a operação falha de forma segura.
-        setRequiredFeature(reader, "http://apache.org/xml/features/disallow-doctype-decl", true);
-        setRequiredFeature(reader, "http://xml.org/sax/features/external-general-entities", false);
-        setRequiredFeature(reader, "http://xml.org/sax/features/external-parameter-entities", false);
-        setRequiredFeature(reader, "http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+        disableFeatureIfSupported(reader, "http://apache.org/xml/features/disallow-doctype-decl", true);
+        disableFeatureIfSupported(reader, "http://xml.org/sax/features/external-general-entities", false);
+        disableFeatureIfSupported(reader, "http://xml.org/sax/features/external-parameter-entities", false);
+        disableFeatureIfSupported(reader, "http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
         reader.setEntityResolver(new DenyExternalEntities());
         reader.setErrorHandler(new StrictErrorHandler());
         reader.setContentHandler(handler);
-        reader.parse(new InputSource(new ByteArrayInputStream(xml)));
+        reader.parse(new InputSource(new StringReader(source)));
         ArrayList<String> missing = new ArrayList<>();
         if (archivePaths != null) for (String ref : handler.textures) {
             String normalized = ref.replace('\\', '/');
@@ -60,22 +74,92 @@ public final class I3dAnalyzer {
 
     private static String baseName(String value) { int i = value.lastIndexOf('/'); return i < 0 ? value : value.substring(i + 1); }
 
-    private static void setRequiredFeature(SAXParserFactory factory, String name, boolean enabled)
-            throws SAXException {
+    private static void disableFeatureIfSupported(SAXParserFactory factory, String name, boolean value) {
         try {
-            factory.setFeature(name, enabled);
-        } catch (Exception unsupported) {
-            throw new SAXException("O parser não oferece a proteção XML obrigatória: " + name, unsupported);
+            factory.setFeature(name, value);
+        } catch (Exception ignored) { /* A pré-validação e o resolvedor garantem a proteção. */ }
+    }
+
+    private static void disableFeatureIfSupported(XMLReader reader, String name, boolean value) {
+        try {
+            reader.setFeature(name, value);
+        } catch (SAXException | RuntimeException ignored) { /* O SAX só recebe XML já pré-validado. */ }
+    }
+
+    /** Decodifica conforme BOM/assinatura/declaração para validar exatamente os caracteres entregues ao SAX. */
+    private static String decodeXml(byte[] bytes) throws SAXException {
+        int offset = 0;
+        Charset charset = StandardCharsets.UTF_8;
+        if (starts(bytes, 0x00, 0x00, 0xfe, 0xff)) { charset = Charset.forName("UTF-32BE"); offset = 4; }
+        else if (starts(bytes, 0xff, 0xfe, 0x00, 0x00)) { charset = Charset.forName("UTF-32LE"); offset = 4; }
+        else if (starts(bytes, 0xef, 0xbb, 0xbf)) { offset = 3; }
+        else if (starts(bytes, 0xfe, 0xff)) { charset = StandardCharsets.UTF_16BE; offset = 2; }
+        else if (starts(bytes, 0xff, 0xfe)) { charset = StandardCharsets.UTF_16LE; offset = 2; }
+        else if (starts(bytes, 0x00, 0x00, 0x00, 0x3c)) { charset = Charset.forName("UTF-32BE"); }
+        else if (starts(bytes, 0x3c, 0x00, 0x00, 0x00)) { charset = Charset.forName("UTF-32LE"); }
+        else if (starts(bytes, 0x00, 0x3c, 0x00, 0x3f)) { charset = StandardCharsets.UTF_16BE; }
+        else if (starts(bytes, 0x3c, 0x00, 0x3f, 0x00)) { charset = StandardCharsets.UTF_16LE; }
+        else {
+            String header = new String(bytes, 0, Math.min(bytes.length, 512), StandardCharsets.ISO_8859_1);
+            Matcher declaration = XML_ENCODING.matcher(header);
+            if (declaration.find()) {
+                try { charset = Charset.forName(declaration.group(1)); }
+                catch (RuntimeException unsupported) { throw new SAXException("Codificação XML não suportada.", unsupported); }
+            }
+        }
+        try {
+            return charset.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(bytes, offset, bytes.length - offset)).toString();
+        } catch (CharacterCodingException malformed) {
+            throw new SAXException("Codificação inválida no arquivo I3D.", malformed);
         }
     }
 
-    private static void setRequiredFeature(XMLReader reader, String name, boolean enabled)
-            throws SAXException {
-        try {
-            reader.setFeature(name, enabled);
-        } catch (SAXException | RuntimeException unsupported) {
-            throw new SAXException("O parser não oferece a proteção XML obrigatória: " + name, unsupported);
+    private static boolean starts(byte[] data, int... signature) {
+        if (data.length < signature.length) return false;
+        for (int i = 0; i < signature.length; i++) if ((data[i] & 0xff) != signature[i]) return false;
+        return true;
+    }
+
+    /** Rejeita DTDs no texto decodificado antes que qualquer parser possa expandi-los. */
+    private static void rejectForbiddenDeclarations(String xml) throws SAXException {
+        int i = 0;
+        while (i < xml.length()) {
+            if (xml.startsWith("<!--", i)) {
+                int end = xml.indexOf("-->", i + 4);
+                if (end < 0) throw new SAXException("Comentário XML não terminado.");
+                i = end + 3;
+            } else if (xml.startsWith("<![CDATA[", i)) {
+                int end = xml.indexOf("]]>", i + 9);
+                if (end < 0) throw new SAXException("Seção CDATA não terminada.");
+                i = end + 3;
+            } else if (xml.startsWith("<?", i)) {
+                int end = xml.indexOf("?>", i + 2);
+                if (end < 0) throw new SAXException("Instrução de processamento XML não terminada.");
+                i = end + 2;
+            } else if (xml.startsWith("<!", i)) {
+                if (xml.regionMatches(true, i, "<!DOCTYPE", 0, 9)) {
+                    throw new SAXException("DOCTYPE e declarações DTD não são permitidos em arquivos I3D.");
+                }
+                throw new SAXException("Declaração XML não permitida antes da análise I3D.");
+            } else if (xml.charAt(i) == '<') {
+                i = skipTag(xml, i);
+            } else {
+                i++;
+            }
         }
+    }
+
+    private static int skipTag(String xml, int start) throws SAXException {
+        char quote = 0;
+        for (int i = start + 1; i < xml.length(); i++) {
+            char c = xml.charAt(i);
+            if (quote != 0) { if (c == quote) quote = 0; }
+            else if (c == '\'' || c == '"') quote = c;
+            else if (c == '>') return i + 1;
+        }
+        throw new SAXException("Tag XML não terminada.");
     }
 
     /** Bloqueia qualquer resolução de recurso externo mesmo se o parser ignorar uma opção. */
