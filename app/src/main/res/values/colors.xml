@@ -3,4 +3,13 @@
     <color name="fundo_conteudo">#FFFFFF</color>
     <color name="texto_principal">#173B2A</color>
     <color name="texto_secundario">#52645A</color>
+    <color name="xml_gutter">#E9EEE9</color>
+    <color name="xml_linha">#75847B</color>
+    <color name="xml_tag">#1565C0</color>
+    <color name="xml_atributo">#7B1FA2</color>
+    <color name="xml_valor">#2E7D32</color>
+    <color name="xml_comentario">#6D8B76</color>
+    <color name="xml_declaracao">#A04A00</color>
+    <color name="xml_entidade">#C05A00</color>
+    <color name="xml_delimitador">#52645A</color>
 </resources>

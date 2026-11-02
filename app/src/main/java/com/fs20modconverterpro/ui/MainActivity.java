@@ -25,6 +25,7 @@ import com.fs20modconverterpro.archive.ArchiveInspection;
 import com.fs20modconverterpro.archive.ArchiveProgressListener;
 import com.fs20modconverterpro.archive.ModArchiveManager;
 import com.fs20modconverterpro.archive.SafArchiveDestination;
+import com.fs20modconverterpro.editor.XmlEditorActivity;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -45,6 +46,7 @@ public final class MainActivity extends Activity {
     private final ModArchiveManager archiveManager = new ModArchiveManager();
 
     private Button openButton;
+    private Button editorButton;
     private Button extractButton;
     private ProgressBar progressBar;
     private TextView selectedNameView;
@@ -63,6 +65,7 @@ public final class MainActivity extends Activity {
         setContentView(R.layout.activity_main);
 
         openButton = (Button) findViewById(R.id.abrir_mod_button);
+        editorButton = (Button) findViewById(R.id.abrir_editor_xml_button);
         extractButton = (Button) findViewById(R.id.extrair_button);
         progressBar = (ProgressBar) findViewById(R.id.progresso);
         selectedNameView = (TextView) findViewById(R.id.nome_arquivo);
@@ -71,6 +74,8 @@ public final class MainActivity extends Activity {
         statusView = (TextView) findViewById(R.id.status);
 
         openButton.setOnClickListener(view -> openArchivePicker());
+        editorButton.setOnClickListener(view ->
+                startActivity(new Intent(this, XmlEditorActivity.class)));
         extractButton.setOnClickListener(view -> openDestinationPicker());
         extractButton.setEnabled(false);
     }

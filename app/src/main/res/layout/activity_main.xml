@@ -29,6 +29,13 @@
         android:layout_marginTop="20dp"
         android:text="@string/abrir_mod" />
 
+    <Button
+        android:id="@+id/abrir_editor_xml_button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="@string/abrir_editor_xml" />
+
     <TextView
         android:id="@+id/nome_arquivo"
         android:layout_width="match_parent"
