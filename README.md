@@ -1,6 +1,6 @@
 # FS20 MOD CONVERTER PRO
 
-Projeto Android nativo em Java, com interface inicial em português brasileiro e organização preparada para receber módulos de conversão.
+Projeto Android nativo em Java, com interface inicial em português brasileiro e organização preparada para receber módulos de conversão. O repositório remoto foi criado originalmente com o nome `S20-MOD-CONVERTER-PRO`.
 
 ## Ambiente de compilação
 
