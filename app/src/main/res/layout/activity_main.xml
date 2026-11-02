@@ -43,6 +43,13 @@
         android:layout_marginTop="8dp"
         android:text="@string/abrir_editor_lua" />
 
+    <Button
+        android:id="@+id/abrir_conversor_texturas_button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="@string/abrir_conversor_texturas" />
+
     <TextView
         android:id="@+id/nome_arquivo"
         android:layout_width="match_parent"

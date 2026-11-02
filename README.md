@@ -13,6 +13,8 @@ Aplicativo Android nativo em Java, com interface em português brasileiro. A pri
 - O editor limita cada XML a 2 MiB, preserva BOM/codificação reconhecida e rejeita DTD e entidades externas. A formatação mantém conteúdo de texto misto e espaços marcados com `xml:space="preserve"`.
 - Editor Lua com abertura pelo seletor Android, realce de palavras-chave, funções, comentários, strings e números, indentação, localização/substituição, desfazer/refazer e exportação. A verificação é estrutural e básica, não executa scripts e não substitui um interpretador Lua; salvar sobre o arquivo aberto exige confirmação explícita.
 - O Editor Lua limita arquivos a 2 MiB e 100.000 linhas, preserva BOM e codificações reconhecidas (UTF-8, UTF-16 e fallback reversível ISO-8859-1). Scripts nunca são executados pelo aplicativo.
+- Conversor de texturas: PNG/JPG/JPEG via decodificadores Android; BMP BI_RGB 24/32 bits; TGA true-color tipos 2 e 10 em 24/32 bits; DDS DXT1/DXT3/DXT5 e RGB32 com máscaras válidas. Exporta PNG/JPG com redimensionamento, qualidade JPEG, pré-visualização com zoom e seletor de destino. Variantes não implementadas são identificadas com uma explicação e não são convertidas.
+- O conversor limita arquivos a 32 MiB, texturas de origem a 16 milhões de pixels e imagens de saída a 8 milhões; imagens grandes são amostradas e os arquivos originais não são alterados.
 - Interface de leitor de arquivos separada do formato; nesta versão, somente ZIP é suportado. GAR ainda não foi implementado.
 
 ## Compilação e testes

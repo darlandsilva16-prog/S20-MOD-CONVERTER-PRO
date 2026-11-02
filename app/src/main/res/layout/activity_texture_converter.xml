@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/fundo_app"
+    android:orientation="vertical"
+    android:padding="12dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/texture_title"
+        android:textColor="@color/texto_principal"
+        android:textSize="21sp"
+        android:textStyle="bold" />
+
+    <Button
+        android:id="@+id/texture_open"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/texture_open" />
+
+    <TextView
+        android:id="@+id/texture_name"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:ellipsize="middle"
+        android:maxLines="1"
+        android:text="@string/texture_none"
+        android:textColor="@color/texto_principal"
+        android:textSize="13sp" />
+
+    <TextView
+        android:id="@+id/texture_details"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:maxLines="4"
+        android:text="@string/texture_details_empty"
+        android:textColor="@color/texto_secundario"
+        android:textSize="12sp" />
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginTop="6dp"
+        android:layout_weight="1"
+        android:background="@color/texture_preview_bg">
+        <com.fs20modconverterpro.texture.ZoomableImageView
+            android:id="@+id/texture_preview"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:contentDescription="@string/texture_preview_description"
+            android:scaleType="matrix" />
+        <TextView
+            android:id="@+id/texture_preview_placeholder"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:clickable="false"
+            android:text="@string/texture_preview_empty"
+            android:textColor="@color/texto_secundario"
+            android:textSize="14sp" />
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|end"
+            android:orientation="horizontal">
+            <Button
+                android:id="@+id/texture_zoom_out"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:contentDescription="@string/texture_zoom_out"
+                android:minWidth="0dp"
+                android:text="−" />
+            <Button
+                android:id="@+id/texture_zoom_in"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:contentDescription="@string/texture_zoom_in"
+                android:minWidth="0dp"
+                android:text="+" />
+        </LinearLayout>
+    </FrameLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+        <Spinner
+            android:id="@+id/texture_output_format"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:contentDescription="@string/texture_output_format" />
+        <Spinner
+            android:id="@+id/texture_resolution"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:contentDescription="@string/texture_resolution" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/texture_quality_label"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/texture_quality_initial"
+        android:textColor="@color/texto_secundario"
+        android:textSize="12sp" />
+
+    <SeekBar
+        android:id="@+id/texture_quality"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:contentDescription="@string/texture_quality_description" />
+
+    <TextView
+        android:id="@+id/texture_status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:accessibilityLiveRegion="polite"
+        android:text="@string/texture_status_ready"
+        android:textColor="@color/texto_secundario"
+        android:textSize="12sp" />
+
+    <ProgressBar
+        android:id="@+id/texture_progress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:indeterminate="true"
+        android:visibility="gone" />
+
+    <Button
+        android:id="@+id/texture_convert"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/texture_convert" />
+</LinearLayout>

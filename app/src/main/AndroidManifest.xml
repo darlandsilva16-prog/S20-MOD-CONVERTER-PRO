@@ -19,5 +19,8 @@
         <activity
             android:name=".editor.LuaEditorActivity"
             android:exported="false" />
+        <activity
+            android:name=".texture.TextureConverterActivity"
+            android:exported="false" />
     </application>
 </manifest>

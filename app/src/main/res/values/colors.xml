@@ -19,4 +19,5 @@
     <color name="lua_string">#2E7D32</color>
     <color name="lua_number">#C05A00</color>
     <color name="lua_identifier">#173B2A</color>
+    <color name="texture_preview_bg">#DDE3DD</color>
 </resources>

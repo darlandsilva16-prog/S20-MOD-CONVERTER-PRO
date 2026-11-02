@@ -38,7 +38,7 @@ jobs:
       - name: Instalar Android SDK Platform 36 e Build Tools
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
-      - name: Executar testes unitários do projeto
+      - name: Executar testes unitários do projeto e dos conversores
         run: gradle --no-daemon --stacktrace testDebugUnitTest
 
       - name: Compilar APK debug

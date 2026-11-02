@@ -27,6 +27,7 @@ import com.fs20modconverterpro.archive.ModArchiveManager;
 import com.fs20modconverterpro.archive.SafArchiveDestination;
 import com.fs20modconverterpro.editor.XmlEditorActivity;
 import com.fs20modconverterpro.editor.LuaEditorActivity;
+import com.fs20modconverterpro.texture.TextureConverterActivity;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -49,6 +50,7 @@ public final class MainActivity extends Activity {
     private Button openButton;
     private Button editorButton;
     private Button luaEditorButton;
+    private Button textureConverterButton;
     private Button extractButton;
     private ProgressBar progressBar;
     private TextView selectedNameView;
@@ -69,6 +71,7 @@ public final class MainActivity extends Activity {
         openButton = (Button) findViewById(R.id.abrir_mod_button);
         editorButton = (Button) findViewById(R.id.abrir_editor_xml_button);
         luaEditorButton = (Button) findViewById(R.id.abrir_editor_lua_button);
+        textureConverterButton = (Button) findViewById(R.id.abrir_conversor_texturas_button);
         extractButton = (Button) findViewById(R.id.extrair_button);
         progressBar = (ProgressBar) findViewById(R.id.progresso);
         selectedNameView = (TextView) findViewById(R.id.nome_arquivo);
@@ -81,6 +84,8 @@ public final class MainActivity extends Activity {
                 startActivity(new Intent(this, XmlEditorActivity.class)));
         luaEditorButton.setOnClickListener(view ->
                 startActivity(new Intent(this, LuaEditorActivity.class)));
+        textureConverterButton.setOnClickListener(view ->
+                startActivity(new Intent(this, TextureConverterActivity.class)));
         extractButton.setOnClickListener(view -> openDestinationPicker());
         extractButton.setEnabled(false);
     }
