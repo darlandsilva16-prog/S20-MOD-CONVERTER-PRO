@@ -12,4 +12,11 @@
     <color name="xml_declaracao">#A04A00</color>
     <color name="xml_entidade">#C05A00</color>
     <color name="xml_delimitador">#52645A</color>
+    <color name="lua_gutter">#E9EEE9</color>
+    <color name="lua_keyword">#1565C0</color>
+    <color name="lua_function">#7B1FA2</color>
+    <color name="lua_comment">#6D8B76</color>
+    <color name="lua_string">#2E7D32</color>
+    <color name="lua_number">#C05A00</color>
+    <color name="lua_identifier">#173B2A</color>
 </resources>
