@@ -1,4 +1,35 @@
 <resources>
     <string name="app_name">FS20 MOD CONVERTER PRO</string>
-    <string name="estado_inicial">Estrutura inicial pronta para receber os módulos do aplicativo.</string>
+    <string name="subtitulo_gerenciador">Gerenciador de arquivos e extrator de mods</string>
+    <string name="abrir_mod">ABRIR MOD</string>
+    <string name="extrair">EXTRAIR</string>
+    <string name="nenhum_arquivo">Nenhum mod selecionado</string>
+    <string name="tamanho_nao_disponivel">Tamanho: ainda não informado</string>
+    <string name="arquivo_nome">Arquivo: %1$s</string>
+    <string name="arquivo_tamanho">Tamanho: %1$s</string>
+    <string name="tamanho_desconhecido">Não informado pelo provedor</string>
+    <string name="nome_arquivo_desconhecido">Nome não informado</string>
+    <string name="titulo_conteudo">Conteúdo do arquivo</string>
+    <string name="conteudo_vazio">Selecione um arquivo ZIP para listar seu conteúdo.</string>
+    <string name="status_pronto">Selecione um mod ZIP para começar.</string>
+    <string name="formato_nao_suportado">Este formato ainda não é suportado. Nesta versão, selecione um arquivo ZIP.</string>
+    <string name="selecione_um_zip">Escolha um arquivo ZIP para continuar.</string>
+    <string name="analisando_arquivo">Analisando o conteúdo do ZIP…</string>
+    <string name="analise_concluida">Análise concluída: %1$d itens · %2$s descompactados. Escolha EXTRAIR para selecionar uma pasta.</string>
+    <string name="extracao_bloqueada">A extração foi bloqueada porque o arquivo contém caminhos inseguros.</string>
+    <string name="caminhos_inseguros">Atenção: %1$d caminho(s) inseguro(s). A extração deste ZIP está bloqueada.</string>
+    <string name="item_bloqueado">[BLOQUEADO]</string>
+    <string name="rotulo_pasta">[PASTA]</string>
+    <string name="rotulo_arquivo">[ARQUIVO]</string>
+    <string name="lista_truncada">… e mais %1$d itens. A lista mostra somente os primeiros 500.</string>
+    <string name="iniciando_extracao">Preparando a pasta de destino…</string>
+    <string name="progresso_analise">Analisando: %1$d itens · %2$s lidos · %3$s</string>
+    <string name="progresso_extracao">Extraindo: %1$d itens · %2$s gravados · %3$s</string>
+    <string name="extracao_concluida">Extração concluída: %1$d itens · %2$s gravados.</string>
+    <string name="erro_seletor_arquivo">O seletor de arquivos do Android não está disponível neste dispositivo.</string>
+    <string name="erro_seletor_pasta">O seletor de pastas do Android não está disponível neste dispositivo.</string>
+    <string name="erro_arquivo_nao_pronto">Selecione e analise um ZIP válido antes de extrair.</string>
+    <string name="erro_leitura_zip">Não foi possível ler este ZIP. Confira se o arquivo está íntegro e tente novamente.</string>
+    <string name="erro_extracao">A extração falhou. Confira as permissões e o espaço disponível na pasta escolhida. Os itens criados nesta tentativa foram removidos quando o provedor permitiu.</string>
+    <string name="operacao_cancelada">Operação cancelada.</string>
 </resources>

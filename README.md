@@ -1,16 +1,18 @@
 # FS20 MOD CONVERTER PRO
 
-Projeto Android nativo em Java, com interface inicial em português brasileiro e organização preparada para receber módulos de conversão. O repositório remoto foi criado originalmente com o nome `S20-MOD-CONVERTER-PRO`.
+Aplicativo Android nativo em Java, com interface em português brasileiro. A primeira ferramenta permite selecionar um mod ZIP, consultar seu tamanho e conteúdo e extrair a estrutura para uma pasta escolhida pelo seletor de documentos do Android.
 
-## Ambiente de compilação
+## Recursos disponíveis
 
-A compilação requer JDK 17, Gradle 9.6.0 e Android SDK com Android SDK Platform 36 e Build Tools 36.0.0. O ambiente Termux inspecionado não possui JDK, Gradle nem Android SDK; portanto, ainda não é possível gerar o APK nele. Abra o projeto em um ambiente com Android Studio/SDK ou instale e configure essas ferramentas antes de compilar.
+- Seleção de arquivos ZIP pelo Storage Access Framework (SAF).
+- Inspeção das entradas e dos tamanhos descompactados, sem alterar o arquivo original.
+- Extração preservando pastas e nomes dentro do destino escolhido.
+- Bloqueio de caminhos absolutos, travessia de diretórios, nomes conflitantes e arquivos acima dos limites definidos.
+- Limites atuais: 20.000 entradas, 256 MiB por arquivo e 1 GiB de conteúdo descompactado por pacote.
+- Interface de leitor de arquivos separada do formato; nesta versão, somente ZIP é suportado. GAR ainda não foi implementado.
 
-Quando Gradle estiver disponível, gere os scripts do Gradle Wrapper na raiz do projeto com `gradle wrapper --gradle-version 9.6.0`; depois, compile o APK de depuração com `./gradlew assembleDebug`. O APK será criado em `app/build/outputs/apk/debug/`.
+## Compilação e testes
 
-## Organização
+Requer JDK 17, Gradle 9.6.0, Android SDK Platform 36 e Build Tools 36.0.0. Os testes unitários do extrator podem ser executados com `gradle testDebugUnitTest`; para gerar o APK de depuração, use `gradle assembleDebug`. O APK será criado em `app/build/outputs/apk/debug/`.
 
-- `app/src/main/java/.../ui`: tela inicial.
-- `app/src/main/java/.../conversion`: espaço reservado aos futuros conversores.
-- `app/src/main/java/.../archive`: espaço reservado ao tratamento de arquivos.
-- `app/src/main/res`: textos, cores, tema e layout Android.
+O workflow do GitHub Actions executa os testes e compila o APK em cada envio para `main`, solicitação de integração ou execução manual. O APK é publicado como artefato do workflow.
