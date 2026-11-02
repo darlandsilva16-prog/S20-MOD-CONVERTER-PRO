@@ -21,18 +21,16 @@ import javax.xml.parsers.SAXParserFactory;
 public final class I3dAnalyzer {
     public static final int MAX_BYTES = 16 * 1024 * 1024;
     private static final int MAX_REFS = 10000;
+    private static final String XINCLUDE_NAMESPACE = "http://www.w3.org/2001/XInclude";
 
     public Report analyze(byte[] xml, Set<String> archivePaths) throws Exception {
         if (xml == null || xml.length == 0 || xml.length > MAX_BYTES) throw new IllegalArgumentException("I3D vazio ou acima do limite de 16 MiB.");
         Handler handler = new Handler();
         SAXParserFactory factory = SAXParserFactory.newInstance();
-        factory.setNamespaceAware(false);
-        try {
-            factory.setXIncludeAware(false);
-        } catch (RuntimeException unsupported) {
-            // Sem confirmação de XInclude desativado, não analisamos o documento.
-            throw new SAXException("O parser não confirmou a desativação de XInclude.", unsupported);
-        }
+        // SAX não processa XInclude por padrão. Namespace ligado permite recusar
+        // explicitamente qualquer elemento XInclude, sem consultar recursos que
+        // não existem em algumas implementações Android.
+        factory.setNamespaceAware(true);
         // Rejeitar DOCTYPE também impede que o documento declare entidades internas
         // que poderiam ser expandidas durante a leitura SAX.
         setRequiredFeature(factory, "http://apache.org/xml/features/disallow-doctype-decl", true);
@@ -96,14 +94,20 @@ public final class I3dAnalyzer {
     private static final class Handler extends DefaultHandler {
         int nodes, transforms, materials, models;
         final List<String> textures = new ArrayList<>();
-        @Override public void startElement(String uri, String local, String qName, Attributes a) {
-            String tag = qName.toLowerCase(Locale.ROOT);
+        @Override public void startElement(String uri, String local, String qName, Attributes a) throws SAXException {
+            if (XINCLUDE_NAMESPACE.equals(uri)) {
+                throw new SAXException("Elementos XInclude não são permitidos em arquivos I3D.");
+            }
+            String elementName = local == null || local.isEmpty() ? qName : local;
+            String tag = elementName.toLowerCase(Locale.ROOT);
             if (tag.equals("node")) nodes++;
             if (tag.equals("transform") || tag.startsWith("transformgroup")) transforms++;
             if (tag.equals("material")) materials++;
             if (tag.equals("shape") || tag.equals("model")) models++;
             for (int i = 0; i < a.getLength() && textures.size() < MAX_REFS; i++) {
-                String name = a.getQName(i).toLowerCase(Locale.ROOT);
+                String localAttribute = a.getLocalName(i);
+                String name = (localAttribute == null || localAttribute.isEmpty()
+                        ? a.getQName(i) : localAttribute).toLowerCase(Locale.ROOT);
                 String value = a.getValue(i).trim();
                 if (!value.isEmpty() && (name.contains("texture") || name.equals("normalmap") || name.equals("filename"))) {
                     String lower = value.toLowerCase(Locale.ROOT);
