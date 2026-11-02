@@ -1,0 +1,5 @@
+<resources>
+    <color name="fundo_app">#F4F6F2</color>
+    <color name="texto_principal">#173B2A</color>
+    <color name="texto_secundario">#52645A</color>
+</resources>
