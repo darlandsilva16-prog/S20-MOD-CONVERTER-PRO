@@ -71,28 +71,8 @@ def assess_zip(data):
     except (OSError, RuntimeError, zipfile.BadZipFile, NotImplementedError) as exc:
         raise ValueError("ZIP corrompido ou com método de compressão não suportado: " + str(exc)[:160]) from exc
 
-    lower_paths, ambiguous_case_paths = {}, set()
-    for path in by_path:
-        key = path.lower()
-        if key in lower_paths and lower_paths[key] != path:
-            ambiguous_case_paths.add(key)
-        else:
-            lower_paths[key] = path
-    def resolve(base, reference):
-        ref = reference.replace("\\", "/")
-        if not ref.strip():
-            return None, "referência vazia"
-        if ref.startswith("/") or re.match(r"^[A-Za-z]:", ref):
-            return None, "referência absoluta"
-        normalized = posixpath.normpath(posixpath.join(posixpath.dirname(base), ref))
-        if normalized == ".." or normalized.startswith("../"):
-            return None, "referência sai da pasta do mod"
-        if normalized in by_path:
-            return normalized, None
-        if normalized.lower() in ambiguous_case_paths:
-            return None, "caminho ambíguo por diferenças de maiúsculas/minúsculas"
-        case_match = lower_paths.get(normalized.lower())
-        return (case_match, "diferença entre maiúsculas/minúsculas") if case_match else (None, "arquivo ausente no ZIP")
+    resolve = _make_path_resolver({path for path, entry in by_path.items() if not entry.is_dir()})
+    seen_incompatible, seen_pending = set(), set()
 
     i3d_paths = [p for p, item in by_path.items()
                  if not item.is_dir() and p.lower().endswith(".i3d")]
@@ -101,7 +81,8 @@ def assess_zip(data):
     for desc in mod_descs:
         info = by_path[desc]
         if info.file_size > MAX_XML:
-            pending.append(_item(desc, "modDesc.xml excede 16 MiB; versão de origem não foi lida."))
+            _append_unique(pending, seen_pending, ("MODDESC_LIMIT", desc.casefold()),
+                           _item(desc, "modDesc.xml excede 16 MiB; versão de origem não foi lida."))
             continue
         try:
             with archive.open(info) as stream:
@@ -109,15 +90,19 @@ def assess_zip(data):
             if len(xml) > MAX_XML:
                 raise ValueError("XML acima do limite.")
             declared = _parse_desc_version(xml)
-            pending.append(_item(desc, "descVersion=" + declared + "; não há mapeamento confiável para compatibilidade FS20." if declared else "descVersion não identificada; compatibilidade de versão pendente."))
+            _append_unique(pending, seen_pending, ("MODDESC_VERSION", (declared or "").casefold()),
+                           _item(desc, "descVersion=" + declared + "; não há mapeamento confiável para compatibilidade FS20." if declared else "descVersion não identificada; compatibilidade de versão pendente."))
         except Exception as exc:
-            pending.append(_item(desc, "Não foi possível analisar modDesc.xml com segurança: " + str(exc)[:160]))
+            reason = str(exc)[:160]
+            _append_unique(pending, seen_pending, ("MODDESC_ERROR", reason.casefold()),
+                           _item(desc, "Não foi possível analisar modDesc.xml com segurança: " + reason))
 
     links = []
     for path in i3d_paths[:MAX_REPORT_ITEMS]:
         info = by_path[path]
         if info.file_size > MAX_XML:
-            pending.append(_item(path, "I3D acima de 16 MiB; referências não foram analisadas."))
+            _append_unique(pending, seen_pending, ("I3D_LIMIT", path.casefold()),
+                           _item(path, "I3D acima de 16 MiB; referências não foram analisadas."))
             continue
         try:
             with archive.open(info) as stream:
@@ -126,48 +111,129 @@ def assess_zip(data):
                 raise ValueError("I3D acima de 16 MiB.")
             scene = _parse_i3d(xml)
         except Exception as exc:
-            incompatible.append(_item(path, "I3D inválido ou não seguro: " + str(exc)[:180]))
+            reason = str(exc)[:180]
+            _append_unique(incompatible, seen_incompatible, ("I3D_ERROR", path.casefold(), reason.casefold()),
+                           _item(path, "I3D inválido ou não seguro: " + reason))
             continue
 
-        resolved = []
+        resolved_by_key = {}
         for kind, ref, owner in scene["references"]:
-            target, issue = resolve(path, ref)
-            row = {"type": kind, "reference": ref, "owner": owner,
-                   "resolved_path": target, "issue": issue}
-            resolved.append(row)
-            if target is None:
-                incompatible.append(_item(path, kind + " " + ref + ": " + issue))
-            elif issue:
-                pending.append(_item(target, "Referência " + ref + " difere apenas em maiúsculas/minúsculas; requer revisão."))
-            elif kind == "textura" and target.lower().endswith(".dds"):
+            result = resolve(path, ref)
+            target, status = result["path"], result["status"]
+            key = (kind, status, (target or ref).casefold())
+            row = resolved_by_key.get(key)
+            if row is None:
+                row = {"type": kind, "reference": ref, "owner": owner,
+                       "owners": [owner], "resolved_path": target,
+                       "status": status, "issue": result["reason"]}
+                resolved_by_key[key] = row
+            elif owner not in row["owners"]:
+                row["owners"].append(owner)
+
+            if status in ("AUSENTE", "AMBIGUO", "FORA_DO_MOD", "INVALIDO"):
+                issue_key = (status, (target or ref).casefold())
+                _append_unique(incompatible, seen_incompatible, issue_key,
+                               _item(target or ref, result["reason"]))
+            elif status in ("EXTERNO", "CAIXA_DIFERENTE"):
+                issue_key = (status, (target or ref).casefold())
+                _append_unique(pending, seen_pending, issue_key,
+                               _item(target or ref, result["reason"]))
+            elif status == "ENCONTRADO" and kind == "textura" and target.lower().endswith(".dds"):
                 with archive.open(by_path[target], "r") as stream:
                     header = stream.read(128)
-                pending.append(_item(target, _dds_status(header, by_path[target].file_size)))
-            elif kind == "geometria":
-                pending.append(_item(target, "SHAPES relacionado; o leitor entende versões 2–7 para visualização parcial, mas não há gravador de geometria I3D validado."))
+                _append_unique(pending, seen_pending, ("DDS", target.casefold()),
+                               _item(target, _dds_status(header, by_path[target].file_size)))
+            elif status == "ENCONTRADO" and kind == "geometria":
+                _append_unique(pending, seen_pending, ("SHAPES", target.casefold()),
+                               _item(target, "SHAPES relacionado; o leitor entende versões 2–7 para visualização parcial, mas não há gravador de geometria I3D validado."))
         for material in scene["materials"]:
             for texture_map in material["maps"]:
                 if texture_map["path"]:
-                    texture_map["resolved_path"], texture_map["issue"] = resolve(path, texture_map["path"])
+                    mapping = resolve(path, texture_map["path"])
+                    texture_map["resolved_path"] = mapping["path"]
+                    texture_map["status"] = mapping["status"]
+                    texture_map["issue"] = mapping["reason"]
         links.append({"i3d": path, "shape_ids": scene["shape_ids"],
                       "scene_shapes": scene["scene_shapes"],
-                      "materials": scene["materials"], "references": resolved})
-        pending.append(_item(path, "I3D analisado; materiais, IDs e referências foram relacionados. Não há conversor de cena I3D para FS20."))
+                      "materials": scene["materials"],
+                      "references": list(resolved_by_key.values())})
+        _append_unique(pending, seen_pending, ("I3D", path.casefold()),
+                       _item(path, "I3D analisado e relacionado; a transformação de cena para FS20 não está implementada."))
 
     if len(i3d_paths) > MAX_REPORT_ITEMS:
-        pending.append(_item("I3D", "Relatório limitado às primeiras 1.000 cenas."))
+        _append_unique(pending, seen_pending, ("I3D_LIMIT",),
+                       _item("I3D", "Relatório limitado às primeiras 1.000 cenas."))
     if not mod_descs:
-        pending.append(_item("modDesc.xml", "Não encontrado; metadados do jogo de origem não identificados."))
-    pending.append(_item("FS20", "FS20 mobile não oferece suporte oficial a mods; não é possível validar um ZIP instalável/compatível para esse destino."))
+        _append_unique(pending, seen_pending, ("MODDESC",),
+                       _item("modDesc.xml", "Não encontrado; metadados do jogo de origem não identificados."))
+    _append_unique(pending, seen_pending, ("FS20",),
+                   _item("FS20", "FS20 mobile não oferece suporte oficial a mods; não é possível validar um ZIP instalável/compatível para esse destino."))
     return {"status": "ANALISE_SEM_CONVERSAO", "target": "FS20 mobile",
             "converted": converted, "incompatible": incompatible[:MAX_REPORT_ITEMS],
             "pending": pending[:MAX_REPORT_ITEMS], "i3d": links,
+            "totals": {"converted": 0, "incompatible": len(incompatible), "pending": len(pending)},
             "export_allowed": False,
             "message": "Nenhuma conversão foi executada. A exportação foi bloqueada porque não há transformação validada para FS20; o mod original permanece inalterado."}
 
 
 def _item(name, detail):
     return {"name": str(name)[:512], "detail": str(detail)[:512]}
+
+
+def resolve_i3d_reference(i3d_path, reference, archive_paths):
+    """Resolve e classifica referências sem confundir $data ou arquivos externos com ausências."""
+    return _make_path_resolver(set(archive_paths))(i3d_path, reference)
+
+
+def _make_path_resolver(archive_paths):
+    exact = set(archive_paths)
+    lower_paths, ambiguous_case_paths = {}, set()
+    for path in exact:
+        key = path.lower()
+        if key in lower_paths and lower_paths[key] != path:
+            ambiguous_case_paths.add(key)
+        else:
+            lower_paths[key] = path
+
+    def resolve(base, reference):
+        original = "" if reference is None else reference.strip()
+        ref = original.replace("\\", "/")
+        if not ref:
+            return {"path": None, "status": "INVALIDO", "reason": "Referência vazia no I3D."}
+        if re.match(r"^\$data(?:/|$)", ref, re.IGNORECASE):
+            suffix = ref[5:].lstrip("/")
+            normalized = posixpath.normpath(suffix) if suffix else ""
+            if normalized == ".." or normalized.startswith("../"):
+                return {"path": ref, "status": "INVALIDO", "reason": "A referência $data sai da raiz dos dados do jogo."}
+            return {"path": "$data" + ("/" + normalized if normalized else ""),
+                    "status": "DADOS_DO_JOGO", "reason": "Referência aos dados internos do jogo; não é um arquivo ausente do ZIP."}
+        if re.match(r"^\$moddir(?:/|$)", ref, re.IGNORECASE):
+            ref = ref[7:].lstrip("/")
+            base = ""
+        elif ref.startswith("$"):
+            return {"path": ref, "status": "EXTERNO", "reason": "Alias externo do jogo ou DLC; conteúdo não fornecido pelo ZIP."}
+        elif "://" in ref or ref.startswith("/") or re.match(r"^[A-Za-z]:", ref):
+            return {"path": ref, "status": "EXTERNO", "reason": "Caminho absoluto ou URI externa; não foi tratado como arquivo ausente do ZIP."}
+
+        normalized = posixpath.normpath(posixpath.join(posixpath.dirname(base), ref))
+        if normalized == ".." or normalized.startswith("../") or normalized.startswith("/"):
+            return {"path": normalized, "status": "FORA_DO_MOD", "reason": "A referência sai da raiz do mod."}
+        if normalized in exact:
+            return {"path": normalized, "status": "ENCONTRADO", "reason": ""}
+        if normalized.lower() in ambiguous_case_paths:
+            return {"path": normalized, "status": "AMBIGUO", "reason": "Há arquivos com o mesmo caminho e capitalização diferente no ZIP."}
+        case_match = lower_paths.get(normalized.lower())
+        if case_match:
+            return {"path": case_match, "status": "CAIXA_DIFERENTE", "reason": "Arquivo encontrado apenas após ignorar maiúsculas/minúsculas."}
+        return {"path": normalized, "status": "AUSENTE", "reason": "Arquivo referenciado não existe no ZIP nem corresponde a um alias de dados do jogo."}
+
+    return resolve
+
+
+def _append_unique(items, seen, key, item):
+    if key not in seen:
+        seen.add(key)
+        items.append(item)
 
 
 def _dds_status(header, size):
@@ -313,5 +379,16 @@ def _parse_i3d(data):
     if len(refs) > MAX_REPORT_ITEMS:
         refs = refs[:MAX_REPORT_ITEMS]
     material_report = material_report[:MAX_REPORT_ITEMS]
+    materials_by_id = {item["id"]: item for item in material_report}
+    for shape in scene_shapes:
+        related, missing = [], []
+        for material_id in shape["material_ids"]:
+            material = materials_by_id.get(material_id)
+            if material is None:
+                missing.append(material_id)
+            else:
+                related.append(material)
+        shape["materials"] = related
+        shape["missing_material_ids"] = missing
     return {"references": refs, "shape_ids": shape_ids, "scene_shapes": scene_shapes,
             "materials": material_report}

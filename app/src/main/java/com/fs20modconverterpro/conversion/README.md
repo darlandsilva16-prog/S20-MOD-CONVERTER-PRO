@@ -2,7 +2,9 @@
 
 ## Estado atual
 
-A tela separada avalia ZIPs sem extraí-los, executá-los ou alterar o original. Ela valida caminhos, duplicatas, tamanho e CRC; lê `modDesc.xml` e I3D com proteção contra DTD/entidades; relaciona `fileId` de materiais a texturas; resolve caminhos relativos; e compara `shapeId` do I3D com IDs de `.i3d.shapes` nas versões binárias 2–7 que o leitor existente entende.
+A tela separada avalia ZIPs sem extraí-los, executá-los ou alterar o original. Ela valida caminhos, duplicatas, tamanho e CRC; lê `modDesc.xml` e I3D com proteção contra DTD/entidades; relaciona `fileId` de materiais a texturas e `materialIds` das formas aos materiais; e compara `shapeId` do I3D com IDs de `.i3d.shapes` nas versões binárias 2–7 que o leitor existente entende.
+
+Referências relativas são normalizadas a partir da pasta do I3D, aceitam `/` e `\\`, e distinguem entradas presentes no ZIP, diferenças de maiúsculas/minúsculas, referências `$data` aos arquivos do jogo, aliases externos, caminhos que saem do mod e arquivos realmente ausentes. Os diagnósticos repetidos são consolidados e os detalhes ficam em seções expansíveis com totais.
 
 O relatório classifica arquivos ausentes/ambíguos como incompatíveis e transformações sem perfil comprovado como pendentes. DDS DXT1, DXT3, DXT5 e RGB de 32 bits com máscaras compatíveis são identificados como decodificáveis pelo módulo de texturas existente. O editor não grava uma cópia de saída nem afirma que um pacote é compatível quando não aplicou conversões validadas.
 

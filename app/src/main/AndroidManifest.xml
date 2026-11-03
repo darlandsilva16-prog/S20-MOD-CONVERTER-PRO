@@ -32,5 +32,8 @@
         <activity
             android:name=".conversion.ModConverterActivity"
             android:exported="false" />
+        <activity
+            android:name=".gar.GarManagerActivity"
+            android:exported="false" />
     </application>
 </manifest>

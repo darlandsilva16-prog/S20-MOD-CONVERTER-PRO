@@ -1,6 +1,7 @@
 package com.fs20modconverterpro.conversion;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.database.Cursor;
@@ -45,6 +46,8 @@ public final class ModConverterActivity extends Activity {
     private TextView report;
     private ProgressBar progress;
     private Button export;
+    private Button convertedSection, incompatibleSection, pendingSection;
+    private JSONObject lastReport;
     private String selectedName;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
@@ -68,6 +71,9 @@ public final class ModConverterActivity extends Activity {
         open.setText("ABRIR MOD ZIP PARA AVALIAÇÃO");
         open.setOnClickListener(v -> openMod());
         root.addView(open);
+        convertedSection = sectionButton(root, "CONVERTIDOS", "converted");
+        incompatibleSection = sectionButton(root, "INCOMPATÍVEIS", "incompatible");
+        pendingSection = sectionButton(root, "PENDENTES", "pending");
         progress = new ProgressBar(this);
         progress.setVisibility(View.GONE);
         root.addView(progress);
@@ -120,6 +126,8 @@ public final class ModConverterActivity extends Activity {
                 runOnUiThread(() -> {
                     if (isFinishing() || isDestroyed()) return;
                     progress.setVisibility(View.GONE);
+                    lastReport = resultJson;
+                    updateSectionCounts(resultJson);
                     report.setText(text);
                     status.setText("Avaliação concluída para " + (filename == null ? "o ZIP" : filename)
                             + ". Nenhum arquivo do mod foi escrito ou executado.");
@@ -158,9 +166,11 @@ public final class ModConverterActivity extends Activity {
         StringBuilder out = new StringBuilder();
         out.append("ESTADO: ").append(value.optString("status")).append('\n');
         out.append("DESTINO: ").append(value.optString("target")).append("\n\n");
-        out.append("CONVERTIDOS (0)\nNenhuma transformação de formato foi realizada.\n\n");
-        appendItems(out, "INCOMPATÍVEIS", value.optJSONArray("incompatible"));
-        appendItems(out, "PENDENTES", value.optJSONArray("pending"));
+        JSONObject totals = value.optJSONObject("totals");
+        out.append("CONVERTIDOS (").append(totals == null ? 0 : totals.optInt("converted")).append(")\n")
+                .append("INCOMPATÍVEIS (").append(totals == null ? 0 : totals.optInt("incompatible")).append(")\n")
+                .append("PENDENTES (").append(totals == null ? 0 : totals.optInt("pending")).append(")\n\n")
+                .append("Nenhuma transformação foi executada; o ZIP original permanece intacto.\n");
         JSONArray scenes = value.optJSONArray("i3d");
         out.append("\nRELAÇÕES I3D\n");
         if (scenes == null || scenes.length() == 0) out.append("Nenhum arquivo .i3d encontrado.\n");
@@ -180,7 +190,12 @@ public final class ModConverterActivity extends Activity {
             if (sceneShapes != null) for (int j = 0; j < sceneShapes.length(); j++) {
                 JSONObject shape = sceneShapes.optJSONObject(j);
                 if (shape != null) out.append("  Forma I3D ").append(shape.optString("shape_id"))
-                        .append(" usa materialIds ").append(shape.optJSONArray("material_ids")).append('\n');
+                        .append(" usa materialIds ").append(shape.optJSONArray("material_ids"))
+                        .append(" → materiais relacionados ").append(shape.optJSONArray("materials"))
+                        .append(shape.optJSONArray("missing_material_ids") != null
+                                && shape.optJSONArray("missing_material_ids").length() > 0
+                                ? " · IDs de material ausentes " + shape.optJSONArray("missing_material_ids") : "")
+                        .append('\n');
             }
             JSONArray decodedShapes = scene.optJSONArray("decoded_shapes");
             if (decodedShapes != null) for (int j = 0; j < decodedShapes.length(); j++) {
@@ -216,16 +231,56 @@ public final class ModConverterActivity extends Activity {
             JSONArray refs = scene.optJSONArray("references");
             if (refs != null) for (int j = 0; j < refs.length() && j < 500; j++) {
                 JSONObject ref = refs.optJSONObject(j);
-                if (ref != null) out.append("  - ").append(ref.optString("type")).append(": ")
-                        .append(ref.optString("reference")).append(" → ")
-                        .append(ref.optString("resolved_path", "não localizado"))
-                        .append(ref.optString("issue").isEmpty() ? "" : " (" + ref.optString("issue") + ")")
-                        .append('\n');
+                if (ref != null) {
+                    String target = ref.optString("resolved_path", "");
+                    out.append("  - ").append(ref.optString("type")).append(": ")
+                            .append(ref.optString("reference")).append(" → ")
+                            .append(target.isEmpty() || "null".equals(target) ? "sem caminho no ZIP" : target)
+                            .append(" [").append(ref.optString("status", "não classificado")).append("]")
+                            .append(ref.optString("issue").isEmpty() ? "" : " (" + ref.optString("issue") + ")")
+                            .append(" · referências: ").append(ref.optJSONArray("owners"))
+                            .append('\n');
+                }
             }
         }
         out.append("\nEXPORTAÇÃO\n").append(value.optString("message"));
         if (out.length() > MAX_UI_REPORT) return out.substring(0, MAX_UI_REPORT) + "\n… relatório visual limitado.";
         return out.toString();
+    }
+
+    private Button sectionButton(LinearLayout root, String label, String key) {
+        Button button = new Button(this);
+        button.setText(label + " (0) — VER DETALHES");
+        button.setOnClickListener(v -> showSection(key));
+        root.addView(button);
+        return button;
+    }
+
+    private void updateSectionCounts(JSONObject result) {
+        JSONObject totals = result.optJSONObject("totals");
+        if (totals == null) return;
+        convertedSection.setText("CONVERTIDOS (" + totals.optInt("converted") + ") — VER DETALHES");
+        incompatibleSection.setText("INCOMPATÍVEIS (" + totals.optInt("incompatible") + ") — VER DETALHES");
+        pendingSection.setText("PENDENTES (" + totals.optInt("pending") + ") — VER DETALHES");
+    }
+
+    private void showSection(String key) {
+        if (lastReport == null) return;
+        JSONArray items = lastReport.optJSONArray(key);
+        StringBuilder details = new StringBuilder();
+        if ("converted".equals(key) && (items == null || items.length() == 0)) {
+            details.append("Nenhuma conversão foi executada.");
+        } else if (items != null) {
+            for (int i = 0; i < items.length(); i++) {
+                JSONObject item = items.optJSONObject(i);
+                if (item != null) details.append("• ").append(item.optString("name"))
+                        .append("\n  ").append(item.optString("detail")).append("\n\n");
+            }
+        }
+        String title = "converted".equals(key) ? "CONVERTIDOS"
+                : "incompatible".equals(key) ? "INCOMPATÍVEIS" : "PENDENTES";
+        new AlertDialog.Builder(this).setTitle(title).setMessage(details.toString())
+                .setPositiveButton("FECHAR", null).show();
     }
 
     /** Relaciona IDs I3D com IDs reais do binário SHAPES, sem gravar nem alterar o ZIP. */
@@ -353,17 +408,6 @@ public final class ModConverterActivity extends Activity {
 
     private String safeReason(Exception error) {
         return error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
-    }
-
-    private void appendItems(StringBuilder out, String heading, JSONArray items) {
-        out.append(heading).append(" (").append(items == null ? 0 : items.length()).append(")\n");
-        if (items == null || items.length() == 0) { out.append("Nenhum item.\n\n"); return; }
-        for (int i = 0; i < items.length() && i < 1000; i++) {
-            JSONObject item = items.optJSONObject(i);
-            if (item != null) out.append("• ").append(item.optString("name"))
-                    .append(" — ").append(item.optString("detail")).append('\n');
-        }
-        out.append('\n');
     }
 
     private String message(Throwable error) { return error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage(); }

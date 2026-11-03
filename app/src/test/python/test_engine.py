@@ -77,6 +77,7 @@ class EngineTests(unittest.TestCase):
         self.assertIn(("textura", "mod/textures/t.dds"), resolved)
         self.assertEqual(["7"], scene_report["shape_ids"])
         self.assertEqual(["2"], scene_report["scene_shapes"][0]["material_ids"])
+        self.assertEqual("2", scene_report["scene_shapes"][0]["materials"][0]["id"])
         self.assertEqual("mod/textures/t.dds", scene_report["materials"][0]["maps"][0]["resolved_path"])
         self.assertFalse(result["export_allowed"])
         self.assertEqual([], result["converted"])
@@ -86,7 +87,7 @@ class EngineTests(unittest.TestCase):
         with zipfile.ZipFile(buf, "w") as zf:
             zf.writestr("mod/a.i3d", b'<i3d><Shapes externalShapesFile="missing.i3d.shapes"/></i3d>')
         result = conversion.assess_zip(buf.getvalue())
-        self.assertTrue(any("ausente" in item["detail"] for item in result["incompatible"]))
+        self.assertTrue(any("não existe" in item["detail"] for item in result["incompatible"]))
 
     def test_mod_assessment_rejects_doctype_without_resolving_entities(self):
         buf = io.BytesIO()
@@ -142,5 +143,64 @@ class EngineTests(unittest.TestCase):
         damaged[payload] ^= 1
         with self.assertRaisesRegex(ValueError, "corrompido"):
             conversion.assess_zip(bytes(damaged))
+
+    def test_i3d_resolver_handles_relative_backslashes_and_moddir(self):
+        paths = {"vehicles/tractor/i3d/model.i3d", "vehicles/shared/textures/body.dds",
+                 "shared/common.xml"}
+        backslash = conversion.resolve_i3d_reference(
+            "vehicles/tractor/i3d/model.i3d", r"..\..\shared\textures\body.dds", paths)
+        moddir = conversion.resolve_i3d_reference(
+            "vehicles/tractor/i3d/model.i3d", "$moddir/shared/common.xml", paths)
+        self.assertEqual(("ENCONTRADO", "vehicles/shared/textures/body.dds"),
+                         (backslash["status"], backslash["path"]))
+        self.assertEqual(("ENCONTRADO", "shared/common.xml"),
+                         (moddir["status"], moddir["path"]))
+
+    def test_i3d_resolver_distinguishes_game_data_external_and_missing(self):
+        base, paths = "vehicle/tractor.i3d", {"vehicle/local.png"}
+        game = conversion.resolve_i3d_reference(base, r"$data\shared\wheel.dds", paths)
+        external = conversion.resolve_i3d_reference(base, "https://example.invalid/image.dds", paths)
+        missing = conversion.resolve_i3d_reference(base, "textures/absent.dds", paths)
+        self.assertEqual("DADOS_DO_JOGO", game["status"])
+        self.assertEqual("EXTERNO", external["status"])
+        self.assertEqual("AUSENTE", missing["status"])
+
+    def test_duplicate_texture_diagnostics_are_collapsed(self):
+        buf = io.BytesIO()
+        dds = bytearray(128)
+        dds[:4] = b"DDS "
+        dds[4:8] = (124).to_bytes(4, "little")
+        dds[12:16] = (4).to_bytes(4, "little")
+        dds[16:20] = (4).to_bytes(4, "little")
+        dds[80:84] = (4).to_bytes(4, "little")
+        dds[84:88] = b"DXT1"
+        scene = (b'<i3d><Files><File fileId="1" filename="textures\\body.dds"/>'
+                 b'<File fileId="2" filename="textures/body.dds"/></Files><Materials>'
+                 b'<Material materialId="1"><Texture fileId="1" name="diffuse"/></Material>'
+                 b'<Material materialId="2"><Texture fileId="2" name="diffuse"/></Material>'
+                 b'</Materials></i3d>')
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("mod/vehicle.i3d", scene)
+            zf.writestr("mod/textures/body.dds", dds)
+        result = conversion.assess_zip(buf.getvalue())
+        dds_messages = [item for item in result["pending"] if item["name"].endswith("body.dds")]
+        self.assertEqual(1, len(dds_messages))
+        self.assertEqual([], result["converted"])
+        self.assertEqual(0, result["totals"]["converted"])
+
+    def test_i3d_report_does_not_call_game_data_or_external_files_missing(self):
+        buf = io.BytesIO()
+        xml = (b'<i3d><Files><File fileId="1" filename="$data\\shared\\wheel.dds"/>'
+               b'<File fileId="2" filename="$pdlc1/shared/external.dds"/>'
+               b'<File fileId="3" filename="textures/absent.dds"/></Files></i3d>')
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("mod/vehicle.i3d", xml)
+        result = conversion.assess_zip(buf.getvalue())
+        refs = result["i3d"][0]["references"]
+        statuses = {ref["reference"]: ref["status"] for ref in refs}
+        self.assertEqual("DADOS_DO_JOGO", statuses[r"$data\shared\wheel.dds"])
+        self.assertEqual("EXTERNO", statuses["$pdlc1/shared/external.dds"])
+        self.assertEqual("AUSENTE", statuses["textures/absent.dds"])
+        self.assertEqual(1, len(result["incompatible"]))
 
 if __name__ == "__main__": unittest.main()

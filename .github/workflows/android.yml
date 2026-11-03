@@ -49,7 +49,7 @@ jobs:
       - name: Instalar Android SDK Platform 34 e Build Tools
         run: sdkmanager "platforms;android-34" "build-tools;34.0.0"
 
-      - name: Executar testes unitários do projeto e dos conversores
+      - name: Executar testes unitários do projeto, GAR e conversores
         run: gradle --no-daemon --stacktrace testDebugUnitTest
 
       - name: Verificar sintaxe dos módulos Python do conversor

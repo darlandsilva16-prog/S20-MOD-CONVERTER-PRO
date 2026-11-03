@@ -31,6 +31,7 @@ import com.fs20modconverterpro.texture.TextureConverterActivity;
 import com.fs20modconverterpro.viewer3d.ModelViewerActivity;
 import com.fs20modconverterpro.python.PythonEngineActivity;
 import com.fs20modconverterpro.conversion.ModConverterActivity;
+import com.fs20modconverterpro.gar.GarManagerActivity;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -57,6 +58,7 @@ public final class MainActivity extends Activity {
     private Button viewer3dButton;
     private Button pythonEngineButton;
     private Button modConverterButton;
+    private Button garManagerButton;
     private Button extractButton;
     private ProgressBar progressBar;
     private TextView selectedNameView;
@@ -81,6 +83,7 @@ public final class MainActivity extends Activity {
         viewer3dButton = (Button) findViewById(R.id.abrir_visualizador_3d_button);
         pythonEngineButton = (Button) findViewById(R.id.abrir_motor_python_button);
         modConverterButton = (Button) findViewById(R.id.abrir_conversor_mods_button);
+        garManagerButton = (Button) findViewById(R.id.abrir_gerenciador_gar_button);
         extractButton = (Button) findViewById(R.id.extrair_button);
         progressBar = (ProgressBar) findViewById(R.id.progresso);
         selectedNameView = (TextView) findViewById(R.id.nome_arquivo);
@@ -101,6 +104,8 @@ public final class MainActivity extends Activity {
                 startActivity(new Intent(this, PythonEngineActivity.class)));
         modConverterButton.setOnClickListener(view ->
                 startActivity(new Intent(this, ModConverterActivity.class)));
+        garManagerButton.setOnClickListener(view ->
+                startActivity(new Intent(this, GarManagerActivity.class)));
         extractButton.setOnClickListener(view -> openDestinationPicker());
         extractButton.setEnabled(false);
     }
