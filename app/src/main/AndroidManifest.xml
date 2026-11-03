@@ -29,5 +29,8 @@
         <activity
             android:name=".python.PythonEngineActivity"
             android:exported="false" />
+        <activity
+            android:name=".conversion.ModConverterActivity"
+            android:exported="false" />
     </application>
 </manifest>

@@ -23,6 +23,15 @@ public final class PythonBridge {
         PyObject result = Python.getInstance().getModule(MODULE).callAttr("analyze_bytes", filename, contents);
         return result.toJava(String.class);
     }
+    public String assessMod(String filename, byte[] contents) {
+        validateInput(filename, contents);
+        if (!filename.toLowerCase(java.util.Locale.ROOT).endsWith(".zip")) {
+            throw new IllegalArgumentException("Selecione um arquivo ZIP de mod.");
+        }
+        PyObject result = Python.getInstance().getModule(MODULE)
+                .callAttr("assess_mod_bytes", filename, contents);
+        return result.toJava(String.class);
+    }
     public static void validateInput(String filename, byte[] contents) {
         if (filename == null || filename.length() == 0 || filename.length() > 1024) {
             throw new IllegalArgumentException("Nome de arquivo inválido.");

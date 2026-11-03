@@ -3,7 +3,7 @@ import json
 import os
 import platform
 
-from . import archive, i3d, lua, textures, xml_tools
+from . import archive, conversion, i3d, lua, textures, xml_tools
 
 MAX_INPUT_BYTES = 32 * 1024 * 1024
 TOOLS = {
@@ -14,6 +14,7 @@ TOOLS = {
     "LUA": "Análise estática básica; scripts não são executados",
     "TEXTURA": "Identificação de cabeçalhos de imagem, sem alteração do original",
     "FS": "Diagnóstico conservador de metadados de versão do mod",
+    "CONVERSOR": "Avaliação de referências I3D e compatibilidade; sem conversão ou execução de Lua",
 }
 LIBRARIES = ["json", "zipfile", "xml.parsers.expat", "re", "struct", "platform"]
 
@@ -64,3 +65,13 @@ def diagnose_game_version(xml_text):
         return {"status": "INCONCLUSIVO", "message": "Não há metadado descVersion identificável para comparar FS19/FS22/FS25 com FS20."}
     return {"status": "VERSAO_DECLARADA", "descVersion": match.group(1),
             "message": "Metadado identificado. A compatibilidade entre versões do jogo não é inferida automaticamente."}
+
+
+def assess_mod_bytes(filename, data):
+    """Avalia um ZIP sem extrair, modificar, converter ou executar arquivos do mod."""
+    if not isinstance(filename, str) or len(filename) > 1024 or not filename.lower().endswith(".zip"):
+        raise ValueError("Selecione um arquivo ZIP de mod.")
+    raw = bytes(data)
+    if not raw or len(raw) > MAX_INPUT_BYTES:
+        raise ValueError("ZIP vazio ou acima do limite de 32 MiB.")
+    return json.dumps(conversion.assess_zip(raw), ensure_ascii=False)
