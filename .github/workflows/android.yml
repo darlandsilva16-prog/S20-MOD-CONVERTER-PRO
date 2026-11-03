@@ -27,22 +27,42 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Configurar Gradle 9.6.0
+      - name: Configurar Python 3.11 para o build do Chaquopy
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Configurar Gradle 8.7
         uses: gradle/actions/setup-gradle@v6
         with:
-          gradle-version: "9.6.0"
+          gradle-version: "8.7"
 
       - name: Configurar Android SDK
         uses: android-actions/setup-android@v4
 
-      - name: Instalar Android SDK Platform 36 e Build Tools
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - name: Instalar Android SDK Platform 34 e Build Tools
+        run: sdkmanager "platforms;android-34" "build-tools;34.0.0"
 
       - name: Executar testes unitários do projeto e dos conversores
         run: gradle --no-daemon --stacktrace testDebugUnitTest
 
+      - name: Testar módulos Python
+        run: python -m unittest discover -s app/src/test/python -v
+
+      - name: Testar runtime dentro do Android API 23
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 23
+          target: default
+          arch: x86_64
+          profile: pixel_2
+          script: gradle --no-daemon --stacktrace connectedDebugAndroidTest
+
       - name: Compilar APK debug
         run: gradle --no-daemon --stacktrace assembleDebug
+
+      - name: Mostrar tamanho do APK gerado
+        run: du -h app/build/outputs/apk/debug/*.apk
 
       - name: Enviar APK como artefato
         uses: actions/upload-artifact@v7

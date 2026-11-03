@@ -26,5 +26,8 @@
         <activity
             android:name=".viewer3d.ModelViewerActivity"
             android:exported="false" />
+        <activity
+            android:name=".python.PythonEngineActivity"
+            android:exported="false" />
     </application>
 </manifest>

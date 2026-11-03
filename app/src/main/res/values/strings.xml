@@ -161,4 +161,5 @@
     <string name="texture_saved">Arquivo exportado: %1$s · %2$s</string>
     <string name="texture_save_failed">Não foi possível salvar a imagem de saída.</string>
     <string name="abrir_visualizador_3d">VISUALIZADOR 3D PRO</string>
+    <string name="abrir_motor_python">MOTOR PYTHON PRO</string>
 </resources>

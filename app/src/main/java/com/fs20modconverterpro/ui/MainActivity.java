@@ -29,6 +29,7 @@ import com.fs20modconverterpro.editor.XmlEditorActivity;
 import com.fs20modconverterpro.editor.LuaEditorActivity;
 import com.fs20modconverterpro.texture.TextureConverterActivity;
 import com.fs20modconverterpro.viewer3d.ModelViewerActivity;
+import com.fs20modconverterpro.python.PythonEngineActivity;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -53,6 +54,7 @@ public final class MainActivity extends Activity {
     private Button luaEditorButton;
     private Button textureConverterButton;
     private Button viewer3dButton;
+    private Button pythonEngineButton;
     private Button extractButton;
     private ProgressBar progressBar;
     private TextView selectedNameView;
@@ -75,6 +77,7 @@ public final class MainActivity extends Activity {
         luaEditorButton = (Button) findViewById(R.id.abrir_editor_lua_button);
         textureConverterButton = (Button) findViewById(R.id.abrir_conversor_texturas_button);
         viewer3dButton = (Button) findViewById(R.id.abrir_visualizador_3d_button);
+        pythonEngineButton = (Button) findViewById(R.id.abrir_motor_python_button);
         extractButton = (Button) findViewById(R.id.extrair_button);
         progressBar = (ProgressBar) findViewById(R.id.progresso);
         selectedNameView = (TextView) findViewById(R.id.nome_arquivo);
@@ -91,6 +94,8 @@ public final class MainActivity extends Activity {
                 startActivity(new Intent(this, TextureConverterActivity.class)));
         viewer3dButton.setOnClickListener(view ->
                 startActivity(new Intent(this, ModelViewerActivity.class)));
+        pythonEngineButton.setOnClickListener(view ->
+                startActivity(new Intent(this, PythonEngineActivity.class)));
         extractButton.setOnClickListener(view -> openDestinationPicker());
         extractButton.setEnabled(false);
     }

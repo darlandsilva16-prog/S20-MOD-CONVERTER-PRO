@@ -69,7 +69,7 @@ public final class I3dAnalyzer {
             if (!archivePaths.contains(normalized) && !archivePaths.contains(baseName(normalized))) missing.add(ref);
         }
         return new Report(handler.nodes, handler.transforms, handler.materials, handler.models,
-                handler.textures, missing, archivePaths == null);
+                handler.textures, missing, archivePaths == null, handler.shapesFile, handler.sceneShapeIds);
     }
 
     private static String baseName(String value) { int i = value.lastIndexOf('/'); return i < 0 ? value : value.substring(i + 1); }
@@ -177,6 +177,9 @@ public final class I3dAnalyzer {
 
     private static final class Handler extends DefaultHandler {
         int nodes, transforms, materials, models;
+        boolean inScene;
+        String shapesFile;
+        final List<Long> sceneShapeIds = new ArrayList<>();
         final List<String> textures = new ArrayList<>();
         @Override public void startElement(String uri, String local, String qName, Attributes a) throws SAXException {
             if (XINCLUDE_NAMESPACE.equals(uri)) {
@@ -184,6 +187,13 @@ public final class I3dAnalyzer {
             }
             String elementName = local == null || local.isEmpty() ? qName : local;
             String tag = elementName.toLowerCase(Locale.ROOT);
+            if (tag.equals("scene")) inScene = true;
+            String external = a.getValue("externalShapesFile");
+            if (external != null && !external.trim().isEmpty()) shapesFile = external.trim();
+            if (inScene && tag.equals("shape")) {
+                String id = a.getValue("shapeId");
+                if (id != null && sceneShapeIds.size() < MAX_REFS) try { sceneShapeIds.add(Long.parseLong(id)); } catch (NumberFormatException ignored) { }
+            }
             if (tag.equals("node")) nodes++;
             if (tag.equals("transform") || tag.startsWith("transformgroup")) transforms++;
             if (tag.equals("material")) materials++;
@@ -201,21 +211,29 @@ public final class I3dAnalyzer {
                 }
             }
         }
+        @Override public void endElement(String uri, String local, String qName) {
+            String tag = (local == null || local.isEmpty() ? qName : local).toLowerCase(Locale.ROOT);
+            if (tag.equals("scene")) inScene = false;
+        }
     }
 
     public static final class Report {
         public final int nodes, transforms, materials, models;
         public final List<String> textureReferences, missingTextures;
+        public final String shapesFileReference;
+        public final List<Long> sceneShapeIds;
         public final boolean referencesUnverified;
-        Report(int n,int t,int m,int mo,List<String> refs,List<String> missing,boolean unverified) {
+        Report(int n,int t,int m,int mo,List<String> refs,List<String> missing,boolean unverified,String shapesFile,List<Long> ids) {
             nodes=n; transforms=t; materials=m; models=mo;
             textureReferences=Collections.unmodifiableList(new ArrayList<>(refs));
             missingTextures=Collections.unmodifiableList(missing); referencesUnverified=unverified;
+            shapesFileReference=shapesFile;
+            sceneShapeIds=Collections.unmodifiableList(new ArrayList<>(ids));
         }
         public String summary() {
             return "Análise I3D somente leitura\nNós: " + nodes + "\nTransformações: " + transforms + "\nReferências de modelo/forma: " + models + "\nMateriais: " + materials +
                     "\nTexturas referenciadas: " + textureReferences.size() + (referencesUnverified ? "\nExistência de referências não verificada fora de um ZIP." : "\nReferências ausentes: " + missingTextures.size()) +
-                    "\n\nRenderização completa de I3D não está implementada; o formato contém recursos específicos do jogo.";
+                    "\n\nA geometria estática de .i3d.shapes versões 2 a 7 pode ser renderizada quando está no ZIP; transformações hierárquicas, materiais, texturas, animação e recursos proprietários não são reproduzidos.";
         }
     }
 }

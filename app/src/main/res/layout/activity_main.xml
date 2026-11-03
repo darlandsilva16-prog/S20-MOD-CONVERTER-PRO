@@ -57,6 +57,13 @@
         android:layout_marginTop="8dp"
         android:text="@string/abrir_visualizador_3d" />
 
+    <Button
+        android:id="@+id/abrir_motor_python_button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="@string/abrir_motor_python" />
+
     <TextView
         android:id="@+id/nome_arquivo"
         android:layout_width="match_parent"
