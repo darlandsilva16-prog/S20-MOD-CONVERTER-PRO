@@ -10,7 +10,7 @@ TOOLS = {
     "ZIP": "Inspeção de entradas e caminhos, sem extração",
     "XML": "Análise XML com bloqueio de DTD e entidades externas",
     "I3D": "Análise XML I3D e identificação de .i3d.shapes",
-    "I3D.SHAPES": "Leitura de cabeçalho binário; decodificação completa disponível no leitor Java",
+    "I3D.SHAPES": "Inspeção observacional de quatro bytes; payload SHAPES não decodificado",
     "LUA": "Análise estática básica; scripts não são executados",
     "TEXTURA": "Identificação de cabeçalhos de imagem, sem alteração do original",
     "FS": "Diagnóstico conservador de metadados de versão do mod",

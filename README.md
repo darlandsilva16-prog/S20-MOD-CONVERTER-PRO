@@ -15,10 +15,12 @@ Aplicativo Android nativo em Java, com interface em português brasileiro. A pri
 - O Editor Lua limita arquivos a 2 MiB e 100.000 linhas, preserva BOM e codificações reconhecidas (UTF-8, UTF-16 e fallback reversível ISO-8859-1). Scripts nunca são executados pelo aplicativo.
 - Conversor de texturas: PNG/JPG/JPEG via decodificadores Android; BMP BI_RGB 24/32 bits; TGA true-color tipos 2 e 10 em 24/32 bits; DDS DXT1/DXT3/DXT5 e RGB32 com máscaras válidas. Exporta PNG/JPG com redimensionamento, qualidade JPEG, pré-visualização com zoom e seletor de destino. Variantes não implementadas são identificadas com uma explicação e não são convertidas.
 - O conversor limita arquivos a 32 MiB, texturas de origem a 16 milhões de pixels e imagens de saída a 8 milhões; imagens grandes são amostradas e os arquivos originais não são alterados.
-- Interface de leitor de arquivos separada do formato; nesta versão, somente ZIP é suportado. GAR ainda não foi implementado.
+- Interface de leitura de arquivos ZIP separada do conversor de mods.
+- Analisador de recursos I3D: inventaria cenas, associações de materiais/modelos, SHAPES e referências de textura; classifica dependências por estado e exporta diagnóstico TXT. I3D permanece XML-only e SHAPES é limitado à observação do cabeçalho até haver especificação validada.
+- Analisador GAR em modo somente leitura: o GAR ENGINE PRO carrega o módulo Python incorporado sob demanda, lê até 128 bytes, mostra posições e bytes observados. Não confirma versão ou índice nem oferece busca, descriptografia, extração ou reconstrução GAR. O GERENCIADOR GAR PRO também pode exportar o relatório de identificação.
 
 ## Compilação e testes
 
-Requer JDK 17, Gradle 9.6.0, Android SDK Platform 36 e Build Tools 36.0.0. Os testes unitários podem ser executados com `gradle testDebugUnitTest`; para gerar o APK de depuração, use `gradle assembleDebug`. O APK será criado em `app/build/outputs/apk/debug/`.
+Requer JDK 17, Gradle 8.7, Android SDK Platform 34 e Build Tools 34.0.0. Os testes unitários podem ser executados com `gradle testDebugUnitTest`; para gerar o APK de depuração, use `gradle assembleDebug`. O APK será criado em `app/build/outputs/apk/debug/`.
 
 O workflow do GitHub Actions executa os testes e compila o APK em cada envio para `main`, solicitação de integração ou execução manual. O APK é publicado como artefato do workflow.

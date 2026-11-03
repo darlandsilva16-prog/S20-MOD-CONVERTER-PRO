@@ -65,6 +65,13 @@
         android:text="@string/abrir_motor_python" />
 
     <Button
+        android:id="@+id/abrir_gar_engine_button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="@string/abrir_gar_engine" />
+
+    <Button
         android:id="@+id/abrir_conversor_mods_button"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

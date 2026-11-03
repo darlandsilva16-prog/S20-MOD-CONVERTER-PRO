@@ -5,7 +5,7 @@ import sys
 import unittest
 import zipfile
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "main" / "python"))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "main" / "python"))
 from fs20_engine import archive, conversion, i3d, lua, runtime, textures, xml_tools
 
 class EngineTests(unittest.TestCase):
@@ -39,7 +39,10 @@ class EngineTests(unittest.TestCase):
     def test_i3d_and_shapes_header(self):
         report = i3d.inspect(b'<i3d><Shapes externalShapesFile="model.i3d.shapes"/></i3d>')
         self.assertEqual(["model.i3d.shapes"], report["shapes_references"])
-        self.assertEqual(5, i3d.inspect_shapes_header(bytes([5, 0, 7, 0]))["version"])
+        shapes = i3d.inspect_shapes_header(bytes([5, 0, 7, 0]))
+        self.assertEqual("CANDIDATO_DE_CABECALHO", shapes["status"])
+        self.assertEqual(5, shapes["version_candidate"])
+        self.assertFalse(shapes["payload_decoded"])
 
     def test_lua_static_delimiter_check(self):
         report = lua.inspect(b"local x = (1 + 2")

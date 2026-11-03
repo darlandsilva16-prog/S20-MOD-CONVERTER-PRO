@@ -29,6 +29,7 @@ public final class GarManagerActivity extends Activity {
     private static final int REQUEST_SAVE_REPORT = 902;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final GarInspector inspector = new GarInspector();
+    private final GarIndexReaderRegistry indexReaders = new GarIndexReaderRegistry();
     private ProgressBar progress;
     private Button cancelButton, saveReportButton, openButton;
     private TextView reportView, statusView;
@@ -52,7 +53,7 @@ public final class GarManagerActivity extends Activity {
 
         TextView title = text("GERENCIADOR GAR PRO", 24);
         root.addView(title);
-        root.addView(text("Identificação segura do cabeçalho. GAR não será tratado como ZIP e nenhum conteúdo protegido será decifrado.", 15));
+        root.addView(text("Leitura somente dos primeiros 128 bytes. A identificação do cabeçalho não valida o índice GAR; nenhum leitor de índice está disponível. O arquivo original nunca é alterado.", 15));
 
         openButton = button("ABRIR GAR");
         openButton.setOnClickListener(v -> openGar());
@@ -88,7 +89,7 @@ public final class GarManagerActivity extends Activity {
         Button rebuildButton = button("RECONSTRUIR GAR");
         rebuildButton.setEnabled(false);
         root.addView(rebuildButton);
-        root.addView(text("Pesquisa, seleção, extração e reconstrução permanecem desativadas enquanto nenhum índice GAR validado estiver disponível.", 14));
+        root.addView(text("Leitura do índice, pesquisa, seleção, extração, descriptografia e reconstrução permanecem desativadas enquanto não houver um leitor validado.", 14));
 
         reportView = text("Nenhum arquivo analisado. Selecione um .gar para consultar o cabeçalho.", 15);
         root.addView(reportView);
@@ -157,7 +158,10 @@ public final class GarManagerActivity extends Activity {
                 } finally {
                     activeInput = null;
                 }
-                String text = result.toReport();
+                GarIndexReader<?> reader = indexReaders.findReader(result);
+                String text = result.toReport() + (reader == null
+                        ? "Leitura do índice: ainda não disponível (nenhum leitor validado registrado).\n"
+                        : "Leitor registrado: " + reader.formatId() + "; a leitura do índice não foi iniciada.\n");
                 runOnUiThread(() -> {
                     if (isFinishing() || isDestroyed()) return;
                     reportView.setText(text);

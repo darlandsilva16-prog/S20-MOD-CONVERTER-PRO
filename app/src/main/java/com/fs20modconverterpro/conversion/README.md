@@ -2,11 +2,15 @@
 
 ## Estado atual
 
-A tela separada avalia ZIPs sem extraí-los, executá-los ou alterar o original. Ela valida caminhos, duplicatas, tamanho e CRC; lê `modDesc.xml` e I3D com proteção contra DTD/entidades; relaciona `fileId` de materiais a texturas e `materialIds` das formas aos materiais; e compara `shapeId` do I3D com IDs de `.i3d.shapes` nas versões binárias 2–7 que o leitor existente entende.
+A tela separada avalia ZIPs sem extrair, executar ou alterar o original. Ela valida caminhos, duplicatas, tamanho e CRC; lê `modDesc.xml` e I3D com proteção contra DTD/entidades; relaciona `fileId` de materiais a texturas, `materialIds` das formas aos materiais e dependências por elemento da cena. O relatório separa recursos encontrados, ausentes, não verificáveis e referências inválidas/repetidas, inventaria I3D e cabeçalhos SHAPES e pode ser exportado como TXT.
 
 Referências relativas são normalizadas a partir da pasta do I3D, aceitam `/` e `\\`, e distinguem entradas presentes no ZIP, diferenças de maiúsculas/minúsculas, referências `$data` aos arquivos do jogo, aliases externos, caminhos que saem do mod e arquivos realmente ausentes. Os diagnósticos repetidos são consolidados e os detalhes ficam em seções expansíveis com totais.
 
-O relatório classifica arquivos ausentes/ambíguos como incompatíveis e transformações sem perfil comprovado como pendentes. DDS DXT1, DXT3, DXT5 e RGB de 32 bits com máscaras compatíveis são identificados como decodificáveis pelo módulo de texturas existente. O editor não grava uma cópia de saída nem afirma que um pacote é compatível quando não aplicou conversões validadas.
+O leitor de diagnóstico só observa os primeiros quatro bytes de cada `.i3d.shapes` e marca uma versão candidata; não lê o payload nem usa rotinas criptográficas. A visualização de I3D permanece somente XML até haver especificação validada. DDS DXT1, DXT3, DXT5 e RGB de 32 bits com máscaras compatíveis são identificados como decodificáveis pelo módulo de texturas existente, sem conversão para FS20.
+
+Referências repetidas são reportadas como reutilização/informação; IDs `fileId`/`materialId` repetidos e vínculos quebrados são destacados para revisão. Referências `$data`/externas são não verificáveis sem os dados do jogo correspondentes. Dependência ausente neste ZIP não prova que seja incompatível com o jogo de origem.
+
+O relatório TXT é gravado somente no destino escolhido pelo usuário. A exportação de conversão continua bloqueada e nenhum arquivo é declarado convertido sem transformação real validada.
 
 ## Limite do destino FS20
 

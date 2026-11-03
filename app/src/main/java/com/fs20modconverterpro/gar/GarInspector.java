@@ -4,26 +4,34 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InterruptedIOException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Locale;
 
-/** Reconhece assinaturas superficiais; não interpreta índices nem conteúdo GAR. */
+/** Inspeciona um prefixo limitado. Não lê índice, executa código ou altera o arquivo. */
 public final class GarInspector {
     public static final int HEADER_LIMIT = 128;
     private static final byte[] GIANTS_BANNER =
             "Copyright (C) GIANTS Software GmbH, All Rights Reserved".getBytes(StandardCharsets.US_ASCII);
+    private static final byte[] GAR_SIGNATURE = {'G', 'A', 'R', ' '};
+    private static final int[] OBSERVED_FIELD_BITS = {16, 16, 32};
 
     public Result inspect(String filename, long fileSize, InputStream input) throws IOException {
         if (input == null) throw new IOException("Não foi possível abrir o arquivo GAR.");
-        byte[] header = new byte[HEADER_LIMIT];
+        int limit = HEADER_LIMIT;
+        if (fileSize >= 0 && fileSize < limit) limit = (int) fileSize;
+        byte[] header = new byte[limit];
         int size = 0;
         while (size < header.length) {
-            if (Thread.currentThread().isInterrupted()) {
-                throw new InterruptedIOException("Leitura do cabeçalho GAR cancelada.");
-            }
+            if (Thread.currentThread().isInterrupted()) throw new InterruptedIOException("Leitura cancelada.");
             int read = input.read(header, size, header.length - size);
             if (read < 0) break;
-            if (read == 0) continue;
-            size += read;
+            if (read == 0) {
+                int one = input.read();
+                if (one < 0) break;
+                header[size++] = (byte) one;
+            } else size += read;
         }
         byte[] prefix = new byte[size];
         System.arraycopy(header, 0, prefix, 0, size);
@@ -32,92 +40,136 @@ public final class GarInspector {
 
     public Result inspect(String filename, long fileSize, byte[] header) {
         String name = filename == null ? "" : filename;
-        byte[] prefix = header == null ? new byte[0] : header;
-        if (fileSize == 0 || fileSize > 0 && fileSize < 4 || prefix.length == 0) {
-            return new Result(name, fileSize, "ARQUIVO INVÁLIDO", "Nenhum cabeçalho foi encontrado.",
-                    "", false, false);
+        byte[] supplied = header == null ? new byte[0] : header;
+        int length = Math.min(supplied.length, HEADER_LIMIT);
+        if (fileSize >= 0) length = (int) Math.min(length, fileSize);
+        byte[] prefix = new byte[length];
+        System.arraycopy(supplied, 0, prefix, 0, length);
+        int bannerOffset = find(prefix, GIANTS_BANNER);
+        boolean banner = bannerOffset >= 0;
+        if (fileSize == 0 || (fileSize > 0 && fileSize < 4) || prefix.length == 0) {
+            return result(name, fileSize, GarAnalysisState.FORMATO_NAO_SUPORTADO,
+                    "Prefixo vazio ou tamanho inconsistente.",
+                    "", bannerOffset, -1, Collections.<HeaderField>emptyList());
         }
         if (isZip(prefix)) {
-            boolean garName = name.toLowerCase(Locale.ROOT).endsWith(".gar");
-            return new Result(name, fileSize, garName ? "ZIP RENOMEADO PARA GAR" : "ARQUIVO ZIP",
-                    garName ? "A assinatura PK identifica ZIP; mudar a extensão não o converte para GAR."
-                            : "A assinatura PK identifica ZIP, não um arquivo GAR da GIANTS.",
-                    "50 4B " + hex(prefix, 2, Math.min(8, prefix.length)), false, false);
+            return result(name, fileSize, GarAnalysisState.FORMATO_NAO_SUPORTADO,
+                    "A assinatura PK identifica ZIP; alterar a extensão não o converte em GAR.",
+                    "", bannerOffset, -1,
+                    Collections.<HeaderField>emptyList());
         }
-        if (startsWith(prefix, GIANTS_BANNER)) {
-            return new Result(name, fileSize, "GAR IDENTIFICADO — CONTEÚDO NÃO VALIDADO",
-                    "Foi reconhecido o banner de assinatura GIANTS. Sem especificação pública validada do índice/conteúdo, não é seguro listar, extrair ou reconstruir este arquivo.",
-                    hex(prefix, 0, Math.min(GIANTS_BANNER.length, prefix.length)), true, false);
+        int signatureOffset = find(prefix, GAR_SIGNATURE);
+        if (signatureOffset < 0) {
+            GarAnalysisState state = banner ? GarAnalysisState.ESTRUTURA_NAO_VALIDADA
+                    : GarAnalysisState.FORMATO_NAO_SUPORTADO;
+            return result(name, fileSize, state,
+                    "Assinatura GAR (GAR seguido de espaço) não encontrada nos primeiros " + HEADER_LIMIT + " bytes.",
+                    "", bannerOffset, -1,
+                    Collections.<HeaderField>emptyList());
         }
-        if (prefix.length < 4 || fileSize > 0 && fileSize < 4) {
-            return new Result(name, fileSize, "ARQUIVO INVÁLIDO", "Cabeçalho truncado; são necessários ao menos quatro bytes.",
-                    hex(prefix, 0, prefix.length), false, false);
+        List<HeaderField> fields = readObservedFields(prefix, signatureOffset);
+        boolean complete = fields.size() == OBSERVED_FIELD_BITS.length;
+        GarAnalysisState state = complete && banner
+                ? GarAnalysisState.CABECALHO_IDENTIFICADO
+                : GarAnalysisState.ESTRUTURA_NAO_VALIDADA;
+        String message = "Banner GIANTS: " + (banner ? "posição " + bannerOffset : "não encontrado")
+                + "; assinatura GAR: posição " + signatureOffset + ". Os valores mostrados são observações "
+                + "binárias; nenhum significado de campo é afirmado.";
+        return result(name, fileSize, state, message, hex(prefix, signatureOffset,
+                Math.min(prefix.length, signatureOffset + GAR_SIGNATURE.length)), bannerOffset,
+                signatureOffset, fields);
+    }
+
+    private Result result(String name, long size, GarAnalysisState state, String message, String signatureHex,
+                          int bannerOffset, int signatureOffset, List<HeaderField> fields) {
+        return new Result(name, size, state, message, signatureHex, bannerOffset, signatureOffset, fields);
+    }
+
+    private static List<HeaderField> readObservedFields(byte[] bytes, int signatureOffset) {
+        int cursor = signatureOffset + GAR_SIGNATURE.length;
+        List<HeaderField> fields = new ArrayList<>();
+        for (int index = 0; index < OBSERVED_FIELD_BITS.length; index++) {
+            int byteCount = OBSERVED_FIELD_BITS[index] / 8;
+            if (cursor > bytes.length - byteCount) break;
+            long value = 0;
+            for (int j = 0; j < byteCount; j++) value |= ((long) bytes[cursor + j] & 0xff) << (8 * j);
+            fields.add(new HeaderField(index + 1, OBSERVED_FIELD_BITS[index], value,
+                    hex(bytes, cursor, cursor + byteCount)));
+            cursor += byteCount;
         }
-        String state = name.toLowerCase(Locale.ROOT).endsWith(".gar")
-                ? "FORMATO GAR NÃO SUPORTADO" : "FORMATO NÃO RECONHECIDO";
-        return new Result(name, fileSize, state,
-                "Assinatura não reconhecida. O arquivo pode usar outra variante GAR ou estar protegido; o conteúdo não foi interpretado.",
-                hex(prefix, 0, Math.min(24, prefix.length)), false, false);
+        return fields;
+    }
+
+    private static int find(byte[] bytes, byte[] expected) {
+        for (int offset = 0; offset <= bytes.length - expected.length; offset++) {
+            boolean match = true;
+            for (int i = 0; i < expected.length; i++) if (bytes[offset + i] != expected[i]) { match = false; break; }
+            if (match) return offset;
+        }
+        return -1;
     }
 
     private static boolean isZip(byte[] bytes) {
         if (bytes.length < 4 || bytes[0] != 'P' || bytes[1] != 'K') return false;
-        return bytes[2] == 3 && bytes[3] == 4
-                || bytes[2] == 5 && bytes[3] == 6
-                || bytes[2] == 7 && bytes[3] == 8;
-    }
-
-    private static boolean startsWith(byte[] bytes, byte[] signature) {
-        if (bytes.length < signature.length) return false;
-        for (int i = 0; i < signature.length; i++) if (bytes[i] != signature[i]) return false;
-        return true;
+        return (bytes[2] == 3 && bytes[3] == 4) || (bytes[2] == 5 && bytes[3] == 6)
+                || (bytes[2] == 7 && bytes[3] == 8);
     }
 
     private static String hex(byte[] bytes, int start, int end) {
-        StringBuilder result = new StringBuilder();
+        StringBuilder value = new StringBuilder();
         for (int i = start; i < end; i++) {
-            if (result.length() > 0) result.append(' ');
-            result.append(String.format(Locale.ROOT, "%02X", bytes[i] & 0xff));
+            if (value.length() > 0) value.append(' ');
+            value.append(String.format(Locale.ROOT, "%02X", bytes[i] & 0xff));
         }
-        return result.toString();
+        return value.toString();
+    }
+
+    public static final class HeaderField {
+        public final int index;
+        public final int widthBits;
+        public final long observedValue;
+        public final String rawHex;
+        private HeaderField(int index, int widthBits, long value, String rawHex) {
+            this.index = index; this.widthBits = widthBits; this.observedValue = value; this.rawHex = rawHex;
+        }
+        public String label() { return "Valor observado " + index + " (significado desconhecido)"; }
     }
 
     public static final class Result {
-        public final String filename;
+        public final String filename, state, message, signatureHex;
+        public final GarAnalysisState stateCode;
         public final long fileSize;
-        public final String state;
-        public final String message;
-        public final String signatureHex;
-        public final boolean giantsBannerRecognized;
-        public final boolean contentReadable;
-        public final boolean canExtract;
-        public final boolean canRebuild;
-        public final String version = "Não identificada";
-
-        private Result(String name, long size, String detectedState, String detail,
-                       String signature, boolean banner, boolean readable) {
-            filename = name;
-            fileSize = size;
-            state = detectedState;
-            message = detail;
-            signatureHex = signature;
-            giantsBannerRecognized = banner;
-            contentReadable = readable;
-            canExtract = false;
-            canRebuild = false;
+        public final int giantsBannerOffset, garSignatureOffset;
+        public final List<HeaderField> fields;
+        public final boolean contentReadable = false, canExtract = false, canRebuild = false;
+        public final String version = "Não confirmada";
+        private Result(String filename, long fileSize, GarAnalysisState state, String message, String signatureHex,
+                       int bannerOffset, int signatureOffset, List<HeaderField> fields) {
+            this.filename = filename; this.fileSize = fileSize; this.stateCode = state;
+            this.state = state.label(); this.message = message;
+            this.signatureHex = signatureHex; this.giantsBannerOffset = bannerOffset;
+            this.garSignatureOffset = signatureOffset;
+            this.fields = Collections.unmodifiableList(new ArrayList<>(fields));
         }
-
         public boolean isGarArchiveValidated() { return false; }
-
         public String toReport() {
-            return "GERENCIADOR GAR PRO — RELATÓRIO DE IDENTIFICAÇÃO\n"
-                    + "Arquivo: " + filename + "\n"
-                    + "Tamanho: " + (fileSize < 0 ? "Não informado" : fileSize + " bytes") + "\n"
-                    + "Estado: " + state + "\n"
-                    + "Versão identificada: " + version + "\n"
-                    + "Assinatura (hex): " + (signatureHex.isEmpty() ? "não disponível" : signatureHex) + "\n"
-                    + "Conteúdo legível: não\nExtração validada: não\nReconstrução validada: não\n\n"
-                    + message + "\n";
+            StringBuilder out = new StringBuilder("ANÁLISE GAR — RELATÓRIO SOMENTE PARA LEITURA\n")
+                    .append("Arquivo: ").append(filename).append('\n')
+                    .append("Tamanho total: ").append(fileSize < 0 ? "Não informado" : fileSize + " bytes").append('\n')
+                    .append("Estado: ").append(state).append(" (").append(stateCode.name()).append(")\n")
+                    .append("Banner GIANTS: ").append(giantsBannerOffset < 0 ? "não encontrado" : "posição " + giantsBannerOffset).append('\n')
+                    .append("Assinatura GAR: ").append(garSignatureOffset < 0 ? "não encontrada" : "posição " + garSignatureOffset).append('\n')
+                    .append("Bytes brutos da assinatura: ").append(signatureHex.isEmpty() ? "não disponíveis" : signatureHex).append('\n')
+                    .append("Versão: não confirmada\nValores observados (sem significado atribuído):\n");
+            for (HeaderField field : fields) out.append("- ").append(field.label()).append(": ")
+                    .append(field.observedValue).append(" (uint").append(field.widthBits).append(" little-endian; bytes ")
+                    .append(field.rawHex).append(")\n");
+            if (fields.size() < OBSERVED_FIELD_BITS.length) out.append("- Campos observados incompletos: ")
+                    .append(OBSERVED_FIELD_BITS.length - fields.size()).append(" valor(es) não puderam ser lidos integralmente.\n");
+            return out.append("\nÍndice GAR: leitura ainda não disponível.\n")
+                    .append("Estado do índice: ESTRUTURA NÃO VALIDADA\n")
+                    .append("Conteúdo validado: não\nPesquisa/extração/descriptografia/reconstrução: desativadas\n\n")
+                    .append(message).append('\n').toString();
         }
     }
 }

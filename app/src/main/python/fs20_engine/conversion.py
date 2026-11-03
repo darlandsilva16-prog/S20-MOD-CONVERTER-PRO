@@ -3,7 +3,10 @@ import io
 import posixpath
 import re
 import zipfile
+from collections import Counter
 from xml.parsers import expat
+
+from .i3d import inspect_shapes_header
 
 MAX_ENTRIES = 20000
 MAX_ARCHIVE_BYTES = 32 * 1024 * 1024
@@ -13,7 +16,7 @@ MAX_REPORT_ITEMS = 1000
 
 
 def assess_zip(data):
-    """Relaciona referências I3D com entradas do ZIP e apresenta itens pendentes."""
+    """Inventaria e relaciona dependências I3D sem extrair, decodificar ou converter."""
     if not isinstance(data, (bytes, bytearray)) or not data:
         raise ValueError("O ZIP está vazio.")
     if len(data) > MAX_ARCHIVE_BYTES:
@@ -74,8 +77,6 @@ def assess_zip(data):
     resolve = _make_path_resolver({path for path, entry in by_path.items() if not entry.is_dir()})
     seen_incompatible, seen_pending = set(), set()
 
-    i3d_paths = [p for p, item in by_path.items()
-                 if not item.is_dir() and p.lower().endswith(".i3d")]
     mod_descs = [p for p in by_path if not by_path[p].is_dir()
                  and posixpath.basename(p).lower() == "moddesc.xml"]
     for desc in mod_descs:
@@ -98,9 +99,55 @@ def assess_zip(data):
                            _item(desc, "Não foi possível analisar modDesc.xml com segurança: " + reason))
 
     links = []
+    i3d_inventory = []
+    duplicate_references = []
+    duplicate_identifiers = []
+    resource_groups = {"found": [], "missing": [], "unverifiable": [], "invalid": []}
+    resource_seen = {key: set() for key in resource_groups}
+    resource_totals = Counter()
+    inventory_counts = Counter()
+    extension_counts = Counter()
+    shapes_inventory = []
+    shapes_by_path = {}
+    texture_extensions = (".dds", ".png", ".jpg", ".jpeg", ".bmp", ".tga")
+    for path, info in by_path.items():
+        if info.is_dir():
+            continue
+        dot = path.rfind(".")
+        extension_counts[path[dot:].lower() if dot >= 0 else "[sem extensão]"] += 1
+        if path.lower().endswith(texture_extensions):
+            inventory_counts["texture_files"] += 1
+    i3d_paths = [p for p, item in by_path.items() if not item.is_dir() and p.lower().endswith(".i3d")]
+    shapes_paths = [p for p, item in by_path.items() if not item.is_dir() and p.lower().endswith(".i3d.shapes")]
+
+    for path in shapes_paths[:MAX_REPORT_ITEMS]:
+        try:
+            with archive.open(by_path[path], "r") as stream:
+                header = stream.read(4)
+            shapes_row = {"path": path, **inspect_shapes_header(header)}
+            shapes_inventory.append(shapes_row)
+            shapes_by_path[path] = shapes_row
+        except Exception as exc:
+            shapes_row = {"path": path, "status": "CABECALHO_INVALIDO",
+                          "header_hex": "", "payload_decoded": False,
+                          "message": str(exc)[:180]}
+            shapes_inventory.append(shapes_row)
+            shapes_by_path[path] = shapes_row
+
+    def add_resource(category, row, identity):
+        if category not in resource_groups or identity in resource_seen[category]:
+            return
+        resource_seen[category].add(identity)
+        resource_totals[category] += 1
+        if len(resource_groups[category]) < MAX_REPORT_ITEMS:
+            resource_groups[category].append(row)
+
     for path in i3d_paths[:MAX_REPORT_ITEMS]:
         info = by_path[path]
         if info.file_size > MAX_XML:
+            i3d_inventory.append({"path": path, "status": "LIMITE_EXCEDIDO", "models": 0,
+                                  "materials": 0, "references": 0,
+                                  "message": "I3D acima de 16 MiB; conteúdo não foi analisado."})
             _append_unique(pending, seen_pending, ("I3D_LIMIT", path.casefold()),
                            _item(path, "I3D acima de 16 MiB; referências não foram analisadas."))
             continue
@@ -112,40 +159,70 @@ def assess_zip(data):
             scene = _parse_i3d(xml)
         except Exception as exc:
             reason = str(exc)[:180]
+            i3d_inventory.append({"path": path, "status": "XML_INVALIDO", "models": 0,
+                                  "materials": 0, "references": 0, "message": reason})
             _append_unique(incompatible, seen_incompatible, ("I3D_ERROR", path.casefold(), reason.casefold()),
                            _item(path, "I3D inválido ou não seguro: " + reason))
             continue
 
-        resolved_by_key = {}
+        inventory_counts["i3d_analyzed"] += 1
+        inventory_counts["models"] += len(scene["scene_shapes"])
+        inventory_counts["materials"] += len(scene["materials"])
+        inventory_counts["texture_references"] += sum(1 for kind, _, _ in scene["references"] if kind == "textura")
+        inventory_counts["shapes_references"] += sum(1 for kind, _, _ in scene["references"] if kind == "geometria")
+        references_by_key = {}
         for kind, ref, owner in scene["references"]:
             result = resolve(path, ref)
             target, status = result["path"], result["status"]
             key = (kind, status, (target or ref).casefold())
-            row = resolved_by_key.get(key)
+            row = references_by_key.get(key)
             if row is None:
                 row = {"type": kind, "reference": ref, "owner": owner,
                        "owners": [owner], "resolved_path": target,
-                       "status": status, "issue": result["reason"]}
-                resolved_by_key[key] = row
-            elif owner not in row["owners"]:
+                       "status": status, "issue": result["reason"], "occurrences": 0}
+                if kind == "geometria" and status == "ENCONTRADO" and target in shapes_by_path:
+                    row["shapes_header"] = shapes_by_path[target]
+                references_by_key[key] = row
+            row["occurrences"] += 1
+            if owner not in row["owners"]:
                 row["owners"].append(owner)
 
+        for key, row in references_by_key.items():
+            status = row["status"]
+            if status == "ENCONTRADO":
+                category = "found"
+            elif status == "AUSENTE":
+                category = "missing"
+            elif status in ("DADOS_DO_JOGO", "EXTERNO", "CAIXA_DIFERENTE"):
+                category = "unverifiable"
+            else:
+                category = "invalid"
+            identity = (path.casefold(), row["type"], status, (row["resolved_path"] or row["reference"]).casefold())
+            group_row = dict(row)
+            group_row["i3d"] = path
+            add_resource(category, group_row, identity)
+            if row["occurrences"] > 1:
+                duplicate = dict(group_row)
+                duplicate["duplicate_count"] = row["occurrences"]
+                duplicate["detail"] = "A mesma dependência aparece mais de uma vez na cena; a repetição é informativa e não implica erro."
+                duplicate_references.append(duplicate)
+
             if status in ("AUSENTE", "AMBIGUO", "FORA_DO_MOD", "INVALIDO"):
-                issue_key = (status, (target or ref).casefold())
+                issue_key = (status, (row["resolved_path"] or row["reference"]).casefold())
                 _append_unique(incompatible, seen_incompatible, issue_key,
-                               _item(target or ref, result["reason"]))
+                               _item(row["resolved_path"] or row["reference"], row["issue"]))
             elif status in ("EXTERNO", "CAIXA_DIFERENTE"):
-                issue_key = (status, (target or ref).casefold())
+                issue_key = (status, (row["resolved_path"] or row["reference"]).casefold())
                 _append_unique(pending, seen_pending, issue_key,
-                               _item(target or ref, result["reason"]))
-            elif status == "ENCONTRADO" and kind == "textura" and target.lower().endswith(".dds"):
-                with archive.open(by_path[target], "r") as stream:
+                               _item(row["resolved_path"] or row["reference"], row["issue"]))
+            elif status == "ENCONTRADO" and row["type"] == "textura" and row["resolved_path"].lower().endswith(".dds"):
+                with archive.open(by_path[row["resolved_path"]], "r") as stream:
                     header = stream.read(128)
-                _append_unique(pending, seen_pending, ("DDS", target.casefold()),
-                               _item(target, _dds_status(header, by_path[target].file_size)))
-            elif status == "ENCONTRADO" and kind == "geometria":
-                _append_unique(pending, seen_pending, ("SHAPES", target.casefold()),
-                               _item(target, "SHAPES relacionado; o leitor entende versões 2–7 para visualização parcial, mas não há gravador de geometria I3D validado."))
+                _append_unique(pending, seen_pending, ("DDS", row["resolved_path"].casefold()),
+                               _item(row["resolved_path"], _dds_status(header, by_path[row["resolved_path"]].file_size)))
+            elif status == "ENCONTRADO" and row["type"] == "geometria":
+                _append_unique(pending, seen_pending, ("SHAPES", row["resolved_path"].casefold()),
+                               _item(row["resolved_path"], "SHAPES relacionado; somente o cabeçalho observado é reportado nesta análise."))
         for material in scene["materials"]:
             for texture_map in material["maps"]:
                 if texture_map["path"]:
@@ -153,10 +230,72 @@ def assess_zip(data):
                     texture_map["resolved_path"] = mapping["path"]
                     texture_map["status"] = mapping["status"]
                     texture_map["issue"] = mapping["reason"]
+                    texture_map["dependency_category"] = _dependency_category(mapping["status"])
+                else:
+                    texture_map["resolved_path"] = None
+                    texture_map["status"] = "INVALIDO"
+                    texture_map["issue"] = "O fileId da textura não corresponde a uma entrada File neste I3D."
+                    texture_map["dependency_category"] = "invalid"
+                    missing_file_id = "fileId=" + str(texture_map["file_id"])
+                    invalid_row = {"i3d": path, "type": "fileId", "reference": missing_file_id,
+                                   "resolved_path": None, "status": "INVALIDO",
+                                   "issue": texture_map["issue"]}
+                    add_resource("invalid", invalid_row,
+                                 (path.casefold(), "fileId", missing_file_id.casefold()))
+                    _append_unique(incompatible, seen_incompatible,
+                                   ("TEXTURE_FILE_ID", path.casefold(), missing_file_id.casefold()),
+                                   _item(path + " · " + missing_file_id, texture_map["issue"]))
+
+        materials_by_id = {material["id"]: material for material in scene["materials"]}
+        geometry_dependencies = [row for row in references_by_key.values() if row["type"] == "geometria"]
+        model_dependencies = []
+        for model in scene["scene_shapes"]:
+            linked_materials = [materials_by_id[mid] for mid in model["material_ids"] if mid in materials_by_id]
+            missing_material_ids = [mid for mid in model["material_ids"] if mid not in materials_by_id]
+            for missing_id in missing_material_ids:
+                missing_row = {"i3d": path, "type": "materialId", "reference": missing_id,
+                               "resolved_path": None, "status": "INVALIDO",
+                               "issue": "materialIds não corresponde a uma definição materialId neste I3D."}
+                add_resource("invalid", missing_row,
+                             (path.casefold(), "materialId", missing_id.casefold()))
+                _append_unique(incompatible, seen_incompatible,
+                               ("MATERIAL_ID", path.casefold(), missing_id.casefold()),
+                               _item(path + " · materialId=" + missing_id, missing_row["issue"]))
+            dependencies = []
+            for geometry in geometry_dependencies:
+                dependencies.append({"type": "geometria", "reference": geometry["reference"],
+                                     "resolved_path": geometry["resolved_path"], "status": geometry["status"],
+                                     "shapes_header": geometry.get("shapes_header")})
+            for material in linked_materials:
+                for texture_map in material["maps"]:
+                    dependencies.append({"type": "textura", "material_id": material["id"],
+                                         "map": texture_map["map"],
+                                         "reference": texture_map["path"] or ("fileId=" + str(texture_map["file_id"])),
+                                         "resolved_path": texture_map.get("resolved_path"),
+                                         "status": texture_map.get("status", "NAO_VERIFICAVEL"),
+                                         "issue": texture_map.get("issue", "")})
+            model_dependencies.append({"element": model["element"], "name": model["name"],
+                                       "shape_id": model["shape_id"],
+                                       "material_ids": model["material_ids"],
+                                       "materials": linked_materials,
+                                       "missing_material_ids": missing_material_ids,
+                                       "dependencies": dependencies})
+
         links.append({"i3d": path, "shape_ids": scene["shape_ids"],
-                      "scene_shapes": scene["scene_shapes"],
-                      "materials": scene["materials"],
-                      "references": list(resolved_by_key.values())})
+                      "scene_shapes": scene["scene_shapes"], "model_dependencies": model_dependencies,
+                      "materials": scene["materials"], "references": list(references_by_key.values()),
+                      "duplicate_identifiers": scene["duplicate_identifiers"]})
+        i3d_inventory.append({"path": path, "status": "ANALISADO",
+                              "models": len(scene["scene_shapes"]), "materials": len(scene["materials"]),
+                              "references": len(scene["references"]),
+                              "duplicate_identifiers": len(scene["duplicate_identifiers"]),
+                              "external_shapes": [row["reference"] for row in references_by_key.values()
+                                                  if row["type"] == "geometria"]})
+        for duplicate in scene["duplicate_identifiers"]:
+            duplicate_identifiers.append({"i3d": path, "type": duplicate["kind"],
+                                          "reference": duplicate["id"], "status": "DUPLICADO",
+                                          "detail": "Identificador repetido no mesmo I3D; confira a associação antes de confiar no vínculo.",
+                                          **{k: v for k, v in duplicate.items() if k not in ("kind", "id")}})
         _append_unique(pending, seen_pending, ("I3D", path.casefold()),
                        _item(path, "I3D analisado e relacionado; a transformação de cena para FS20 não está implementada."))
 
@@ -168,12 +307,41 @@ def assess_zip(data):
                        _item("modDesc.xml", "Não encontrado; metadados do jogo de origem não identificados."))
     _append_unique(pending, seen_pending, ("FS20",),
                    _item("FS20", "FS20 mobile não oferece suporte oficial a mods; não é possível validar um ZIP instalável/compatível para esse destino."))
+    for key, rows in resource_groups.items():
+        inventory_counts["resources_" + key] = resource_totals[key]
+    inventory_counts["duplicate_references"] = len(duplicate_references)
+    inventory_counts["duplicate_identifiers"] = len(duplicate_identifiers)
+    inventory_counts["i3d_files"] = len(i3d_paths)
+    inventory_counts["shapes_files"] = len(shapes_paths)
+    inventory_counts["texture_files"] = sum(1 for p in by_path if not by_path[p].is_dir()
+                                             and p.lower().endswith(texture_extensions))
     return {"status": "ANALISE_SEM_CONVERSAO", "target": "FS20 mobile",
             "converted": converted, "incompatible": incompatible[:MAX_REPORT_ITEMS],
             "pending": pending[:MAX_REPORT_ITEMS], "i3d": links,
-            "totals": {"converted": 0, "incompatible": len(incompatible), "pending": len(pending)},
+            "i3d_inventory": i3d_inventory[:MAX_REPORT_ITEMS],
+            "shapes_inventory": shapes_inventory,
+            "resource_groups": resource_groups,
+            "duplicate_references": duplicate_references[:MAX_REPORT_ITEMS],
+            "duplicate_identifiers": duplicate_identifiers[:MAX_REPORT_ITEMS],
+            "inventory": {"files": len([i for i in infos if not i.is_dir()]),
+                          "extensions": dict(sorted(extension_counts.items())),
+                          "i3d_files": len(i3d_paths), "shapes_files": len(shapes_paths),
+                          "texture_files": inventory_counts["texture_files"],
+                          "detail_limit_per_category": MAX_REPORT_ITEMS},
+            "totals": {"converted": 0, "incompatible": len(incompatible), "pending": len(pending),
+                       **dict(inventory_counts)},
             "export_allowed": False,
             "message": "Nenhuma conversão foi executada. A exportação foi bloqueada porque não há transformação validada para FS20; o mod original permanece inalterado."}
+
+
+def _dependency_category(status):
+    if status == "ENCONTRADO":
+        return "found"
+    if status == "AUSENTE":
+        return "missing"
+    if status in ("DADOS_DO_JOGO", "EXTERNO", "CAIXA_DIFERENTE"):
+        return "unverifiable"
+    return "invalid"
 
 
 def _item(name, detail):
@@ -196,10 +364,12 @@ def _make_path_resolver(archive_paths):
             lower_paths[key] = path
 
     def resolve(base, reference):
+        if not isinstance(reference, str):
+            return {"path": None, "status": "INVALIDO", "reason": "Referência não textual no I3D."}
         original = "" if reference is None else reference.strip()
         ref = original.replace("\\", "/")
-        if not ref:
-            return {"path": None, "status": "INVALIDO", "reason": "Referência vazia no I3D."}
+        if not ref or any(ord(char) < 32 for char in ref):
+            return {"path": None, "status": "INVALIDO", "reason": "Referência vazia ou com caractere de controle."}
         if re.match(r"^\$data(?:/|$)", ref, re.IGNORECASE):
             suffix = ref[5:].lstrip("/")
             normalized = posixpath.normpath(suffix) if suffix else ""
@@ -295,6 +465,7 @@ def _parse_desc_version(data):
 def _parse_i3d(data):
     parser = expat.ParserCreate(namespace_separator="}")
     files, materials, refs, shape_ids, scene_shapes = {}, {}, [], [], []
+    duplicate_identifiers = []
     elements = 0
     material_stack = []
     in_scene = [False]
@@ -311,8 +482,12 @@ def _parse_i3d(data):
         if tag == "file":
             file_id = attrs.get("fileId")
             filename = attrs.get("filename")
-            if file_id and filename and len(files) < 20000:
-                files[file_id] = filename
+            if file_id and filename is not None and len(files) < 20000:
+                if file_id in files:
+                    duplicate_identifiers.append({"kind": "fileId", "id": file_id,
+                                                  "first": files[file_id], "repeated": filename})
+                else:
+                    files[file_id] = filename
         elif tag == "material":
             material_id = attrs.get("materialId") or attrs.get("name") or "material"
             maps = []
@@ -321,7 +496,10 @@ def _parse_i3d(data):
                 if (key_l.endswith("mapid") or key_l.endswith("textureid")) and len(maps) < 64:
                     maps.append((key_l, value))
             if len(materials) < MAX_REPORT_ITEMS:
-                materials[material_id] = maps
+                if material_id in materials:
+                    duplicate_identifiers.append({"kind": "materialId", "id": material_id})
+                else:
+                    materials[material_id] = maps
                 material_stack.append(material_id)
             else:
                 material_stack.append(None)
@@ -337,7 +515,8 @@ def _parse_i3d(data):
                 shape_ids.append(shape_id)
             material_ids = attrs.get("materialIds", "").split()
             if shape_id and len(scene_shapes) < MAX_REPORT_ITEMS:
-                scene_shapes.append({"shape_id": shape_id, "material_ids": material_ids[:64]})
+                scene_shapes.append({"element": tag, "name": attrs.get("name", ""),
+                                     "shape_id": shape_id, "material_ids": material_ids[:64]})
         ext = attrs.get("externalShapesFile")
         if ext:
             refs.append(("geometria", ext, "externalShapesFile"))
@@ -391,4 +570,4 @@ def _parse_i3d(data):
         shape["materials"] = related
         shape["missing_material_ids"] = missing
     return {"references": refs, "shape_ids": shape_ids, "scene_shapes": scene_shapes,
-            "materials": material_report}
+            "materials": material_report, "duplicate_identifiers": duplicate_identifiers[:MAX_REPORT_ITEMS]}
