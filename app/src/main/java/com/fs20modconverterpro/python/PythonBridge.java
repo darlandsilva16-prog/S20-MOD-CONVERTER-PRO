@@ -1,7 +1,7 @@
 package com.fs20modconverterpro.python;
 
 import android.content.Context;
-import com.chaquo.python.AndroidPlatform;
+import com.chaquo.python.android.AndroidPlatform;
 import com.chaquo.python.PyObject;
 import com.chaquo.python.Python;
 
